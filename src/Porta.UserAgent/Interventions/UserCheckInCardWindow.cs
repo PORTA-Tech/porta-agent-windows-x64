@@ -1371,6 +1371,16 @@ internal sealed class UserCheckInCardWindow : Window
         IReadOnlyList<TaskBoardLine> board = prompt.Tasks ?? Array.Empty<TaskBoardLine>();
         IReadOnlyList<TaskBoardLine> open = OpenLines(prompt);
 
+        // Phase 5 — the correction, directly under the measured line and above the day's work. It
+        // sits ABOVE because it is about the card's own premise: if Ari has the day wrong, nothing
+        // below it is worth answering, and the user should not have to read a whole board to find
+        // the way out. Only offered when there IS a board, i.e. when Ari is actually claiming
+        // something about the day's work.
+        if (board.Count > 0)
+        {
+            AddCorrectionBlock();
+        }
+
         if (board.Count == 0)
         {
             // No tasks for the day at all — nothing to close. Keep the old plan box so the evening
@@ -1439,6 +1449,55 @@ internal sealed class UserCheckInCardWindow : Window
             Dismissed: false,
             TaskOutcomes: CollectOutcomes(rows)));
         _bodyStack.Children.Add(save);
+    }
+
+    /// <summary>
+    /// Phase 5 — "Ari thinks your day is done." and the one tap that says otherwise.
+    ///
+    /// Dashed, like every other "nothing chosen yet" surface on this card, so it reads as an
+    /// invitation rather than as a selection. Neither chip is preselected and neither is the
+    /// primary action: the card's own answer is still "Close the day", and a correction is the
+    /// exception. One tap responds immediately — a correction that needed confirming would be two
+    /// taps to say the card was wrong, which is worse than not offering it.
+    /// </summary>
+    private void AddCorrectionBlock()
+    {
+        var inner = new StackPanel { Margin = new Thickness(11, 9, 11, 10) };
+        AddMutedLine(UserCheckInCorrections.AssumptionLabel, bottomMargin: 7, parent: inner, fontSize: 11.5);
+
+        var chips = new StackPanel { Orientation = Orientation.Horizontal };
+        foreach ((string value, string label) in UserCheckInCorrections.Options)
+        {
+            Button chip = MakeChip(label);
+            // Captured per iteration on purpose: every chip must send its OWN value.
+            string correction = value;
+            chip.Click += (_, _) => Respond(new UserCheckInResponse(
+                UserCheckInKind.EndOfDay,
+                TextReply: null,
+                Choice: null,
+                Dismissed: false,
+                // No outcomes. The day is not being closed, so nothing on the board is being
+                // answered — sending an empty list here would read downstream as "asked and
+                // nothing ticked", which is a different and untrue statement.
+                TaskOutcomes: null,
+                Correction: correction));
+            chips.Children.Add(chip);
+        }
+
+        inner.Children.Add(chips);
+
+        var frame = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        frame.Children.Add(new System.Windows.Shapes.Rectangle
+        {
+            Stroke = new SolidColorBrush(CardBorder),
+            StrokeThickness = 1d,
+            StrokeDashArray = new DoubleCollection(new[] { 3d, 2d }),
+            RadiusX = 7d,
+            RadiusY = 7d,
+            Fill = Brushes.Transparent
+        });
+        frame.Children.Add(inner);
+        _bodyStack.Children.Add(frame);
     }
 
     private void Respond(UserCheckInResponse response)

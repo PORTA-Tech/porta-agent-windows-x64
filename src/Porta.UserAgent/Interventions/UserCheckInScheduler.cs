@@ -34,6 +34,66 @@ internal static class UserCheckInScheduler
     public static readonly TimeSpan AwayGapThreshold = TimeSpan.FromHours(2);
 
     /// <summary>
+    /// Phase 5 — how long "not done yet" buys before the evening card may ask again.
+    ///
+    /// Lives HERE and not in UserCheckInDayTiming: it is not a fact about how long a working day is,
+    /// it is how long the card owes the user after being told it was wrong. Putting it beside
+    /// DefaultDayLength would make it look like a fourth day-shape constant and invite it into the
+    /// prediction, which it has nothing to do with.
+    ///
+    /// 90 minutes because the tap means "I am still working": coming back inside an hour would be
+    /// the same interruption again, and waiting longer would miss the end of a stretch that really
+    /// was nearly over.
+    /// </summary>
+    public static readonly TimeSpan EveningReArmDelay = TimeSpan.FromMinutes(90);
+
+    /// <summary>
+    /// Phase 5 — what the user has already told the evening card today.
+    ///
+    /// The evening card gets ONE second chance. Without the count, "not done yet" would re-arm the
+    /// card indefinitely and a user still working at midnight would be asked all evening, which is
+    /// the nagging this feature exists to stop.
+    /// </summary>
+    internal readonly record struct EveningCorrectionState(
+        int NotDoneYetCount,
+        bool WasntWorkingToday,
+        DateTimeOffset? LastCorrectedLocal)
+    {
+        public static readonly EveningCorrectionState None = new(0, false, null);
+    }
+
+    /// <summary>
+    /// Whether the evening card may be offered given today's corrections. Pure, so every arm of it
+    /// is unit-tested rather than reasoned about at 6pm.
+    /// </summary>
+    internal static bool EveningCorrectionAllows(EveningCorrectionState corrections, DateTimeOffset nowLocal)
+    {
+        // "Wasn't working today" is a statement about the whole day, so it ends the evening card for
+        // the whole day. Asking again would be arguing with the answer.
+        if (corrections.WasntWorkingToday)
+        {
+            return false;
+        }
+
+        if (corrections.NotDoneYetCount == 0)
+        {
+            return true;
+        }
+
+        // Corrected twice: Ari has now been wrong about the same day twice, and a third card is
+        // not going to be the one that lands.
+        if (corrections.NotDoneYetCount >= 2)
+        {
+            return false;
+        }
+
+        // Corrected once: the card owes the user the re-arm delay before it may ask again. A
+        // missing timestamp means the row could not be read as a time, and the safe reading of
+        // "corrected, when unknown" is to stay quiet rather than to ask immediately.
+        return corrections.LastCorrectedLocal is { } last && nowLocal >= last + EveningReArmDelay;
+    }
+
+    /// <summary>
     /// Returns the check-in to offer now, or null when none is due. Assumes the caller has
     /// already cleared the per-day mute and cold-start gates and confirmed live activity — the
     /// morning check-in is meant to fire on the first activity after the 5:00 boundary.
@@ -43,6 +103,19 @@ internal static class UserCheckInScheduler
         DailyGoalSnapshot goal,
         UserCheckInDayTiming.WorkDaySnapshot day,
         Func<UserCheckInKind, bool> alreadyOfferedToday)
+        => DecideCheckIn(nowLocal, goal, day, alreadyOfferedToday, EveningCorrectionState.None);
+
+    /// <summary>
+    /// Phase 5 overload — same decision, plus what the user has already told the evening card today.
+    /// The old signature is kept and defaults to "no corrections", so every existing caller and test
+    /// keeps its exact behaviour.
+    /// </summary>
+    public static (UserCheckInKind? Kind, string Reason) DecideCheckIn(
+        DateTimeOffset nowLocal,
+        DailyGoalSnapshot goal,
+        UserCheckInDayTiming.WorkDaySnapshot day,
+        Func<UserCheckInKind, bool> alreadyOfferedToday,
+        EveningCorrectionState corrections)
     {
         // Complaint 2 - the evening card no longer keys off the wall-clock hour. It is due at the
         // end of the PREDICTED day, and then only at a real break, or two hours past regardless.
@@ -50,7 +123,10 @@ internal static class UserCheckInScheduler
         UserCheckInDayTiming.TimingDecision evening = UserCheckInDayTiming.IsEveningDue(nowLocal, day);
         if (evening.Due
             && !goal.EndOfDayRecorded
-            && !alreadyOfferedToday(UserCheckInKind.EndOfDay))
+            && !alreadyOfferedToday(UserCheckInKind.EndOfDay)
+            // Phase 5 — the user may have already told this card it was wrong. That answer outranks
+            // the timing: the prediction that made the card due is exactly what was corrected.
+            && EveningCorrectionAllows(corrections, nowLocal))
         {
             return (UserCheckInKind.EndOfDay, $"eod:{evening.Reason}");
         }

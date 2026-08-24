@@ -313,6 +313,38 @@ internal static class CheckInCardPreview
                 UserCheckInCoordinator.BuildPrompt(
                     UserCheckInKind.EndOfDay, goal, metrics, narrativeLine: "", board: mixedToday)),
 
+            // Phase 5 — the agreed mockup's day: two Ari thinks are finished, one it thinks is not.
+            // This is the state the resume sentence and the correction block are designed against,
+            // so it is the one to look at when either changes.
+            new("evening PHASE 5 — resume + correction (the mockup's day)",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.EndOfDay, goal, metrics, narrativeLine: "",
+                    board:
+                    [
+                        Task(21, "Rewrite the onboarding email", "done",
+                            measured: 5100, planned: 5400, project: "Northbridge"),
+                        Task(22, "Send the March invoices", "done",
+                            measured: 2400, planned: 2400, project: "Admin"),
+                        Task(23, "Landing page copy", "active",
+                            measured: 7800, planned: 10800, project: "Northbridge"),
+                    ])),
+
+            // The LLM line must NOT win here: phase 5 makes the resume the message on this card.
+            // Kept beside the state above so a regression shows up as two cards that disagree.
+            new("evening PHASE 5 — resume still wins over an LLM line",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.EndOfDay, goal, metrics,
+                    narrativeLine: "What a day that was — you should be proud of the shape it took.",
+                    board:
+                    [
+                        Task(21, "Rewrite the onboarding email", "done",
+                            measured: 5100, planned: 5400, project: "Northbridge"),
+                        Task(22, "Send the March invoices", "done",
+                            measured: 2400, planned: 2400, project: "Admin"),
+                        Task(23, "Landing page copy", "active",
+                            measured: 7800, planned: 10800, project: "Northbridge"),
+                    ])),
+
             // The "Good night" branch: tasks existed and every one of them is closed. Distinct from
             // "no tasks at all" below, and it was missing from the preview entirely.
             new("evening with everything finished",

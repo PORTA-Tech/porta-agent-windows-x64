@@ -4692,6 +4692,117 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
         }
     }
 
+    /// <summary>
+    /// Phase 5 — records one correction of a check-in card. Append-only: a correction is an event,
+    /// not a state, and the second one on a day has to remain distinguishable from the first
+    /// because that is exactly what ends the evening for the day.
+    ///
+    /// Deliberately does NOT touch daily_goals. Leaving the day unstamped is what "not done yet"
+    /// MEANS, so a write here must never be mistaken for closing the day.
+    /// </summary>
+    public AgentCheckInCorrection? RecordCheckInCorrection(
+        string localDate,
+        string cardKind,
+        string correction,
+        string assumedEndLocal,
+        double assumedActiveSeconds,
+        int assumedFinishedCount,
+        int assumedOpenCount,
+        DateTimeOffset nowUtc)
+    {
+        string date = (localDate ?? string.Empty).Trim();
+        string kind = (cardKind ?? string.Empty).Trim();
+        string value = (correction ?? string.Empty).Trim();
+        if (date.Length == 0 || kind.Length == 0 || !AgentCheckInCorrection.IsKnownCorrection(value))
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+            long id;
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText =
+                    """
+                    INSERT INTO check_in_corrections (
+                        local_date, card_kind, correction, assumed_end_local,
+                        assumed_active_seconds, assumed_finished_count, assumed_open_count,
+                        corrected_at_utc)
+                    VALUES ($date, $kind, $correction, $end, $active, $finished, $open, $now);
+                    SELECT last_insert_rowid();
+                    """;
+                cmd.Parameters.AddWithValue("$date", date);
+                cmd.Parameters.AddWithValue("$kind", kind);
+                cmd.Parameters.AddWithValue("$correction", value);
+                cmd.Parameters.AddWithValue("$end", (assumedEndLocal ?? string.Empty).Trim());
+                cmd.Parameters.AddWithValue("$active", assumedActiveSeconds);
+                cmd.Parameters.AddWithValue("$finished", assumedFinishedCount);
+                cmd.Parameters.AddWithValue("$open", assumedOpenCount);
+                cmd.Parameters.AddWithValue("$now", nowUtc.ToUniversalTime().ToString("O"));
+                id = Convert.ToInt64(cmd.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
+            }
+
+            tx.Commit();
+            return new AgentCheckInCorrection(
+                id, date, kind, value, (assumedEndLocal ?? string.Empty).Trim(),
+                assumedActiveSeconds, assumedFinishedCount, assumedOpenCount,
+                nowUtc.ToUniversalTime());
+        }
+    }
+
+    /// <summary>
+    /// Phase 5 — every correction recorded against one goal day, oldest first. The scheduler reads
+    /// this to decide whether the evening card may come back, so an empty list must mean "no
+    /// correction", never "could not tell": any failure here throws rather than silently returning
+    /// nothing, which would re-arm a card the user has already dismissed twice.
+    /// </summary>
+    public IReadOnlyList<AgentCheckInCorrection> ReadCheckInCorrections(string localDate)
+    {
+        string date = (localDate ?? string.Empty).Trim();
+        if (date.Length == 0)
+        {
+            return Array.Empty<AgentCheckInCorrection>();
+        }
+
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT id, local_date, card_kind, correction, assumed_end_local,
+                       assumed_active_seconds, assumed_finished_count, assumed_open_count,
+                       corrected_at_utc
+                FROM check_in_corrections
+                WHERE local_date = $date
+                ORDER BY id;
+                """;
+            cmd.Parameters.AddWithValue("$date", date);
+
+            var rows = new List<AgentCheckInCorrection>();
+            using SqliteDataReader reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                rows.Add(new AgentCheckInCorrection(
+                    Id: reader.GetInt64(0),
+                    LocalDate: reader.GetString(1),
+                    CardKind: reader.GetString(2),
+                    Correction: reader.GetString(3),
+                    AssumedEndLocal: reader.GetString(4),
+                    AssumedActiveSeconds: reader.GetDouble(5),
+                    AssumedFinishedCount: reader.GetInt32(6),
+                    AssumedOpenCount: reader.GetInt32(7),
+                    CorrectedAtUtc: DateTimeOffset.Parse(reader.GetString(8), System.Globalization.CultureInfo.InvariantCulture)));
+            }
+
+            return rows;
+        }
+    }
+
     internal static string NormalizeMiddayAnswer(string? answer)
     {
         return (answer ?? string.Empty).Trim().ToLowerInvariant() switch

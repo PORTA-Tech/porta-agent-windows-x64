@@ -812,6 +812,54 @@ public sealed class LocalApiClient : IDisposable
     public Task<LocalApiDailyGoalResponse?> RecordEndOfDayAsync(LocalApiGoalEndOfDayRequest request, CancellationToken token = default)
         => PostGoalAsync("/v1/goals/eod", request, token);
 
+    // Phase 5 — records that the evening card read the day wrong. Never stamps the day closed.
+    public async Task<LocalApiCheckInCorrectionResponse?> RecordCheckInCorrectionAsync(
+        LocalApiCheckInCorrectionRequest request,
+        CancellationToken token = default)
+    {
+        try
+        {
+            RefreshEndpointBinding();
+            using var content = new StringContent(
+                JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await _httpClient
+                .PostAsync("/v1/checkins/correction", content, token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content
+                .ReadFromJsonAsync<LocalApiCheckInCorrectionResponse>(cancellationToken: token)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // Phase 5 — today's corrections, oldest first. The scheduler reads this to decide whether the
+    // evening card has already been corrected, and how long ago.
+    public async Task<IReadOnlyList<LocalApiCheckInCorrection>> GetCheckInCorrectionsTodayAsync(
+        CancellationToken token = default)
+    {
+        try
+        {
+            RefreshEndpointBinding();
+            LocalApiCheckInCorrectionsResponse? response = await _httpClient
+                .GetFromJsonAsync<LocalApiCheckInCorrectionsResponse>("/v1/checkins/corrections/today", token)
+                .ConfigureAwait(false);
+            return response?.Corrections ?? Array.Empty<LocalApiCheckInCorrection>();
+        }
+        catch
+        {
+            // Fails toward "no correction recorded". The scheduler's other gates (eod stamped, the
+            // per-day mute) still stand, so the worst case is the ordinary once-a-day evening card.
+            return Array.Empty<LocalApiCheckInCorrection>();
+        }
+    }
+
     // Part 5 — one narrative line per high-value moment. Null on any failure; the caller renders
     // its honest template instead, so this can never delay a card past the caller's own budget.
     public async Task<LocalApiNarrativeResponse?> GetNarrativeAsync(

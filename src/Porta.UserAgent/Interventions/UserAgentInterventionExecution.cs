@@ -82,6 +82,10 @@ internal sealed class UserAgentInterventionExecutor
     /// break "Skip today" button (class <see cref="BreakMuteClass"/>) and any class-level mute.</summary>
     public void MuteClassForToday(string classKey) => _muteStore.MuteForToday(classKey);
 
+    // Phase 5 — lets one class be offered again today. Only the evening card's correction uses it,
+    // and the scheduler still decides whether the re-offer is due. See UserNotificationMuteStore.
+    public void AllowClassAgainToday(string classKey) => _muteStore.AllowAgainToday(classKey);
+
     public bool IsClassMutedForToday(string classKey) => _muteStore.IsMutedForToday(classKey);
 
     public void ObserveWidgetState(UserDesktopWidgetState state)

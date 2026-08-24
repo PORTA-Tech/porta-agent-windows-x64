@@ -176,6 +176,16 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
     public AgentDailyGoal? RecordEndOfDayPlan(string localDate, string planTomorrow, DateTimeOffset nowUtc)
         => _inner.RecordEndOfDayPlan(localDate, planTomorrow, nowUtc);
 
+    public AgentCheckInCorrection? RecordCheckInCorrection(
+        string localDate, string cardKind, string correction, string assumedEndLocal,
+        double assumedActiveSeconds, int assumedFinishedCount, int assumedOpenCount, DateTimeOffset nowUtc)
+        => _inner.RecordCheckInCorrection(
+            localDate, cardKind, correction, assumedEndLocal,
+            assumedActiveSeconds, assumedFinishedCount, assumedOpenCount, nowUtc);
+
+    public IReadOnlyList<AgentCheckInCorrection> ReadCheckInCorrections(string localDate)
+        => _inner.ReadCheckInCorrections(localDate);
+
     public AgentStorageInfo ReadStorageInfo() => _inner.ReadStorageInfo();
     public AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null) => _inner.ReadTodaySummary(dateUtc);
     public AgentDistractionSummary ReadCurrentDistractionSummary() => _inner.ReadCurrentDistractionSummary();

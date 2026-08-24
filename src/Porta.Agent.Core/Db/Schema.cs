@@ -1047,6 +1047,40 @@ internal static class Schema
         EnsureColumnExists(connection, "sent_reports", "archived_at_utc", "TEXT NOT NULL DEFAULT ''");
     }
 
+    /// <summary>
+    /// Phase 5 (2026-08-24) — every time the user tells the evening card it read the day wrong.
+    ///
+    /// This table is the ONLY honest signal about whether Ari reads a day correctly, so it stores
+    /// what Ari ASSUMED alongside what the user said, captured at the moment the card was shown.
+    /// Without the assumption a correction says only "wrong", never "wrong about what" — and a row
+    /// that cannot be compared to a prediction cannot be learned from.
+    ///
+    /// Append-only and LOCAL ONLY: nothing here leaves the machine, and a correction never edits
+    /// the day it corrects. The day row is simply left unstamped, which is the whole point.
+    /// </summary>
+    internal static void ApplyCheckInCorrectionsV33(SqliteConnection connection)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            CREATE TABLE IF NOT EXISTS check_in_corrections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                local_date TEXT NOT NULL,
+                card_kind TEXT NOT NULL,
+                correction TEXT NOT NULL,
+                assumed_end_local TEXT NOT NULL DEFAULT '',
+                assumed_active_seconds INTEGER NOT NULL DEFAULT 0,
+                assumed_finished_count INTEGER NOT NULL DEFAULT 0,
+                assumed_open_count INTEGER NOT NULL DEFAULT 0,
+                corrected_at_utc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS ix_check_in_corrections_day
+                ON check_in_corrections(local_date);
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
     internal static void ApplyContractSchemaV3(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();

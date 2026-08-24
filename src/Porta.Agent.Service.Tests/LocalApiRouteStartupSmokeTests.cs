@@ -331,6 +331,12 @@ public sealed class LocalApiRouteStartupSmokeTests
         public AgentDailyGoal? GetTodayGoal() => throw new NotSupportedException();
         public AgentDailyGoal? RecordMiddayAnswer(string answer) => throw new NotSupportedException();
         public AgentDailyGoal? RecordEndOfDay(string planTomorrow) => throw new NotSupportedException();
+        public AgentCheckInCorrection? RecordCheckInCorrection(
+            string cardKind, string correction, string assumedEndLocal,
+            double assumedActiveSeconds, int assumedFinishedCount, int assumedOpenCount)
+            => throw new NotSupportedException();
+        public IReadOnlyList<AgentCheckInCorrection> GetCheckInCorrectionsToday()
+            => Array.Empty<AgentCheckInCorrection>();
         public string? GetCarriedOverPlan() => null;
     }
 

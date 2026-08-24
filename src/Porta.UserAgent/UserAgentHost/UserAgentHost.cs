@@ -104,6 +104,11 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private int _taskAsksDeliveredToday;
     private readonly Dictionary<string, DateTimeOffset> _taskExpiryFirstSeenLocal = new(StringComparer.Ordinal);
     private DateTimeOffset? _lastInterruptionLocal;
+
+    // Phase 5 — what the evening card claimed about the day, frozen when it was shown. Null between
+    // cards. Read once when a correction arrives, so a correction always records the assumption
+    // that was actually on screen.
+    private EveningAssumption? _eveningAssumption;
     // The expiry a card has been asked to carry, and the title it should lead with.
     private string? _foldedExpiryKey;
     private string? _foldedExpiryTitle;
@@ -1851,7 +1856,9 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             nowLocal,
             goalSnapshot,
             day,
-            kind => _interventionExecutor.IsClassMutedForToday(UserCheckInScheduler.MuteClassFor(kind)));
+            kind => _interventionExecutor.IsClassMutedForToday(UserCheckInScheduler.MuteClassFor(kind)),
+            // Phase 5 — what the user has already told the evening card today.
+            await ReadEveningCorrectionStateAsync(nowLocal, token).ConfigureAwait(false));
         if (due is not UserCheckInKind kind)
         {
             return;
@@ -1963,10 +1970,35 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             }
         }
 
+        if (shown && kind == UserCheckInKind.EndOfDay)
+        {
+            // Phase 5 — freeze what Ari assumed AT THE MOMENT THE CARD APPEARED. This is the claim
+            // the user is about to accept or correct, so it has to be the state that produced the
+            // card. Re-deriving it when the tap arrives would measure a different, later day: the
+            // user may sit with the card for an hour, and "predicted end" would have moved.
+            _eveningAssumption = new EveningAssumption(
+                PredictedEndLocal: UserCheckInDayTiming.FractionAt(day, 1d) is { } predictedEnd
+                    ? predictedEnd.ToString("yyyy-MM-dd HH:mm")
+                    : string.Empty,
+                ActiveSeconds: day.ActiveWorkToday.TotalSeconds,
+                FinishedCount: board.Count(line => line.IsDone),
+                OpenCount: UserCheckInTaskBoard.StillToAsk(board).Count);
+        }
+
         if (shown)
         {
-            // Fire-and-forget: the card is already up, so nothing downstream waits on this.
-            _ = UpgradeCheckInLineAsync(kind, narrativeKind, token);
+            // Phase 5 — the evening card's message is the RESUME, and the resume is not an opening
+            // line to be improved on. Fetching a line here and cross-fading it in would replace
+            // "You planned three things. You finished two." with prose a few seconds after the user
+            // started reading it, which is both the churn complaint and the loss of the one
+            // checkable sentence on the card. Suppressed at the source rather than refused inside
+            // TryUpgradeMessage, so the LLM call is not made at all.
+            bool resumeOwnsTheLine = kind == UserCheckInKind.EndOfDay && board.Count > 0;
+            if (!resumeOwnsTheLine)
+            {
+                // Fire-and-forget: the card is already up, so nothing downstream waits on this.
+                _ = UpgradeCheckInLineAsync(kind, narrativeKind, token);
+            }
         }
     }
 
@@ -2161,6 +2193,16 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 break;
             }
 
+            case UserCheckInKind.EndOfDay when response.IsCorrection:
+            {
+                // Phase 5 — Ari read the day wrong. Record that, and change NOTHING else: no eod
+                // stamp, no task outcomes, no plan_tomorrow. The day staying open IS the fix, and
+                // measured time, tasks and buckets keep recording exactly as they were. Nothing
+                // the day has accumulated is discarded.
+                await RecordCheckInCorrectionAsync(response.Correction!).ConfigureAwait(false);
+                break;
+            }
+
             case UserCheckInKind.EndOfDay:
             {
                 // Step 7 — the evening closes the day rather than opening a new one. Keeping an item
@@ -2188,6 +2230,106 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 break;
             }
         }
+    }
+
+    /// <summary>
+    /// Phase 5 — today's evening-card corrections, shaped for the scheduler.
+    ///
+    /// Only <c>end_of_day</c> rows count: the table is keyed by card kind so a second correctable
+    /// card later cannot silently start suppressing this one.
+    /// </summary>
+    private async Task<UserCheckInScheduler.EveningCorrectionState> ReadEveningCorrectionStateAsync(
+        DateTimeOffset nowLocal,
+        CancellationToken token)
+    {
+        IReadOnlyList<LocalApiCheckInCorrection> rows = await _localApiClient
+            .GetCheckInCorrectionsTodayAsync(token).ConfigureAwait(false);
+        if (rows.Count == 0)
+        {
+            return UserCheckInScheduler.EveningCorrectionState.None;
+        }
+
+        int notDoneYet = 0;
+        bool wasntWorking = false;
+        DateTimeOffset? lastLocal = null;
+        foreach (LocalApiCheckInCorrection row in rows)
+        {
+            if (row.CardKind != AgentCheckInCorrection.EndOfDayCard)
+            {
+                continue;
+            }
+
+            switch (row.Correction)
+            {
+                case UserCheckInCorrections.NotDoneYet:
+                    notDoneYet++;
+                    break;
+                case UserCheckInCorrections.WasntWorking:
+                    wasntWorking = true;
+                    break;
+                default:
+                    continue;
+            }
+
+            DateTimeOffset local = row.CorrectedAtUtc.ToOffset(nowLocal.Offset);
+            if (lastLocal is null || local > lastLocal)
+            {
+                lastLocal = local;
+            }
+        }
+
+        return new UserCheckInScheduler.EveningCorrectionState(notDoneYet, wasntWorking, lastLocal);
+    }
+
+    // Phase 5 — the claim the evening card made, frozen at show time. See _eveningAssumption.
+    private sealed record EveningAssumption(
+        string PredictedEndLocal,
+        double ActiveSeconds,
+        int FinishedCount,
+        int OpenCount);
+
+    /// <summary>
+    /// Phase 5 — writes one correction and, for "not done yet", gives the evening card back its one
+    /// chance to ask later.
+    ///
+    /// The re-arm is two separate things and needs both: releasing the per-day mute (which was
+    /// written when the card was SHOWN and would otherwise silence the card until 05:00), and the
+    /// scheduler's own delay-and-limit gate, which is what stops the released mute turning into a
+    /// card that reappears on the next tick. Releasing without the gate would be worse than not
+    /// re-arming at all.
+    ///
+    /// "Wasn't working today" releases nothing: it is a statement about the whole day.
+    /// </summary>
+    private async Task RecordCheckInCorrectionAsync(string correction)
+    {
+        EveningAssumption assumed = _eveningAssumption ?? new EveningAssumption(string.Empty, 0d, 0, 0);
+        _eveningAssumption = null;
+
+        LocalApiCheckInCorrectionResponse? result = await _localApiClient
+            .RecordCheckInCorrectionAsync(new LocalApiCheckInCorrectionRequest(
+                SchemaVer: 1,
+                CardKind: AgentCheckInCorrection.EndOfDayCard,
+                Correction: correction,
+                AssumedEndLocal: assumed.PredictedEndLocal,
+                AssumedActiveSeconds: assumed.ActiveSeconds,
+                AssumedFinishedCount: assumed.FinishedCount,
+                AssumedOpenCount: assumed.OpenCount))
+            .ConfigureAwait(false);
+
+        UserAgentFileLog.Info(
+            $"checkin_correction_recorded ok={result?.Success == true} correction={correction} "
+            + $"assumed_end={assumed.PredictedEndLocal} assumed_active_m={(int)(assumed.ActiveSeconds / 60d)} "
+            + $"assumed_finished={assumed.FinishedCount} assumed_open={assumed.OpenCount}");
+
+        if (correction != UserCheckInCorrections.NotDoneYet)
+        {
+            return;
+        }
+
+        _interventionExecutor.AllowClassAgainToday(
+            UserCheckInScheduler.MuteClassFor(UserCheckInKind.EndOfDay));
+        UserAgentFileLog.Info(
+            $"checkin_eod_rearmed after_m={(int)UserCheckInScheduler.EveningReArmDelay.TotalMinutes}");
     }
 
     /// <summary>

@@ -907,6 +907,45 @@ public static class LocalApiEndpointMapping
             return Results.Json(new LocalApiDailyGoalResponse(goal is not null, ToApiGoal(goal), DateTimeOffset.UtcNow));
         });
 
+        // Phase 5 — the evening card read the day wrong. Records the correction and, deliberately,
+        // nothing else: no eod stamp, no task outcomes, no plan. The day stays open because that is
+        // what the user just said.
+        api.MapPost("/checkins/correction", (IAgentCoreController controller, LocalApiCheckInCorrectionRequest? request) =>
+        {
+            if (request is null
+                || request.SchemaVer != 1
+                || !AgentCheckInCorrection.IsKnownCorrection(request.Correction?.Trim()))
+            {
+                return Results.BadRequest(new LocalApiCheckInCorrectionResponse(
+                    false, null, DateTimeOffset.UtcNow));
+            }
+
+            AgentCheckInCorrection? row = controller.RecordCheckInCorrection(
+                request.CardKind?.Trim() ?? AgentCheckInCorrection.EndOfDayCard,
+                request.Correction!.Trim(),
+                request.AssumedEndLocal ?? string.Empty,
+                request.AssumedActiveSeconds,
+                request.AssumedFinishedCount,
+                request.AssumedOpenCount);
+            return Results.Json(new LocalApiCheckInCorrectionResponse(
+                row is not null, ToApiCorrection(row), DateTimeOffset.UtcNow));
+        });
+
+        api.MapGet("/checkins/corrections/today", (IAgentCoreController controller) =>
+        {
+            IReadOnlyList<AgentCheckInCorrection> rows = controller.GetCheckInCorrectionsToday();
+            var mapped = new List<LocalApiCheckInCorrection>(rows.Count);
+            foreach (AgentCheckInCorrection row in rows)
+            {
+                if (ToApiCorrection(row) is { } api1)
+                {
+                    mapped.Add(api1);
+                }
+            }
+
+            return Results.Json(new LocalApiCheckInCorrectionsResponse(true, mapped, DateTimeOffset.UtcNow));
+        });
+
         // Phase 1c — signup nudge: is this UNLINKED device due to be nudged to sign in right now?
         // Link status comes from the local identity store; the governor + caps live in the core.
         api.MapGet("/nudges/signup-due", (IAgentCoreController controller, ILocalIdentityLinkStore identityLinkStore) =>
@@ -1845,5 +1884,21 @@ public static class LocalApiEndpointMapping
                 CreatedAtUtc: goal.CreatedAtUtc,
                 MiddayAtUtc: goal.MiddayAtUtc,
                 EndOfDayAtUtc: goal.EndOfDayAtUtc);
+    }
+
+    private static LocalApiCheckInCorrection? ToApiCorrection(AgentCheckInCorrection? row)
+    {
+        return row is null
+            ? null
+            : new LocalApiCheckInCorrection(
+                Id: row.Id,
+                LocalDate: row.LocalDate,
+                CardKind: row.CardKind,
+                Correction: row.Correction,
+                AssumedEndLocal: row.AssumedEndLocal,
+                AssumedActiveSeconds: row.AssumedActiveSeconds,
+                AssumedFinishedCount: row.AssumedFinishedCount,
+                AssumedOpenCount: row.AssumedOpenCount,
+                CorrectedAtUtc: row.CorrectedAtUtc);
     }
 }

@@ -158,6 +158,19 @@ public interface IBrainStateStore
     AgentDailyGoal? GetDailyGoal(string localDate);
     AgentDailyGoal? RecordMiddayGoalAnswer(string localDate, string answer, DateTimeOffset nowUtc);
     AgentDailyGoal? RecordEndOfDayPlan(string localDate, string planTomorrow, DateTimeOffset nowUtc);
+
+    // Phase 5 — the evening card's correction, and what Ari had assumed when it was shown.
+    AgentCheckInCorrection? RecordCheckInCorrection(
+        string localDate,
+        string cardKind,
+        string correction,
+        string assumedEndLocal,
+        double assumedActiveSeconds,
+        int assumedFinishedCount,
+        int assumedOpenCount,
+        DateTimeOffset nowUtc);
+
+    IReadOnlyList<AgentCheckInCorrection> ReadCheckInCorrections(string localDate);
     AgentStorageInfo ReadStorageInfo();
     AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null);
     AgentDistractionSummary ReadCurrentDistractionSummary();

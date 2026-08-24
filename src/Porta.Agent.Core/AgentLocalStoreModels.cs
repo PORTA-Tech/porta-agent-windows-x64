@@ -738,3 +738,33 @@ public sealed record AgentDailyGoal(
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? MiddayAtUtc,
     DateTimeOffset? EndOfDayAtUtc);
+
+// Phase 5 — one correction of a check-in card, and what Ari had assumed when it made the claim.
+// LocalDate is the same 5:00-boundary goal day AgentDailyGoal uses, so a correction and the day it
+// corrects always line up. The Assumed* fields are a snapshot taken when the CARD WAS SHOWN, not
+// when the user tapped: they are the prediction being corrected, and re-reading them at tap time
+// would quietly measure something else.
+public sealed record AgentCheckInCorrection(
+    long Id,
+    string LocalDate,
+    string CardKind,
+    string Correction,
+    string AssumedEndLocal,
+    double AssumedActiveSeconds,
+    int AssumedFinishedCount,
+    int AssumedOpenCount,
+    DateTimeOffset CorrectedAtUtc)
+{
+    // The card that can be corrected today. A constant rather than a bare string so a second
+    // correctable card cannot silently share this one's meaning.
+    public const string EndOfDayCard = "end_of_day";
+
+    // "Still working" — the day is not over. Ari may ask once more, later.
+    public const string NotDoneYet = "not_done_yet";
+
+    // "There was no working day here." Nothing is claimed and the evening does not return today.
+    public const string WasntWorking = "wasnt_working";
+
+    public static bool IsKnownCorrection(string? value)
+        => value is NotDoneYet or WasntWorking;
+}

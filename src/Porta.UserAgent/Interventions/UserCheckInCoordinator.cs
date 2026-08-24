@@ -161,10 +161,17 @@ internal static class UserCheckInCoordinator
             UserCheckInKind.EndOfDay => new UserCheckInPrompt(
                 Kind: UserCheckInKind.EndOfDay,
                 Title: "Wrapping up",
-                Message: line.Length > 0
-                    ? line
-                    : tasks.Count > 0
-                        ? UserCheckInTaskBoard.SummarizeDay(tasks)
+                // Phase 5 — on THIS card the resume sentence outranks the LLM line. Everywhere else
+                // the written line is the better copy, but here the card is about to ask the user to
+                // confirm a day, and the one thing they need first is what Ari thinks happened:
+                // "You planned three things. You finished two." A reflective sentence in its place
+                // reads well and says nothing checkable. The board is the source, so the resume is
+                // only possible when there IS a board; a day with no tasks keeps the old behaviour
+                // (and its LLM line) untouched, because there is nothing to resume.
+                Message: tasks.Count > 0
+                    ? UserCheckInTaskBoard.SummarizeDay(tasks)
+                    : line.Length > 0
+                        ? line
                         : BuildEndOfDayTemplate(goalText, awayGap),
                 GoalText: goalText,
                 ReportLine: BuildReportLine(metrics),

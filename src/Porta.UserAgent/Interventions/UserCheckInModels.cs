@@ -97,10 +97,46 @@ internal sealed record UserCheckInResponse(
     IReadOnlyList<UserCheckInTaskEntry>? Tasks = null,
     // Steps 5 + 7 — per-task outcomes from the midday and evening cards. Null on kinds that do not
     // collect them, and on any card built before this existed.
-    IReadOnlyList<UserCheckInTaskOutcome>? TaskOutcomes = null)
+    IReadOnlyList<UserCheckInTaskOutcome>? TaskOutcomes = null,
+    // Phase 5 — the user told the card its assumption was wrong. Its OWN field rather than a value
+    // folded into Choice or TaskOutcomes: a correction is not an answer to the card's question, and
+    // every existing consumer of those two must keep reading exactly what it read before. Null on
+    // every other kind and on any card that raises no correction, which is the ordinary case.
+    string? Correction = null)
 {
     public static UserCheckInResponse DismissedFor(UserCheckInKind kind)
         => new(kind, TextReply: null, Choice: null, Dismissed: true);
+
+    /// <summary>
+    /// Phase 5 — this response is a correction, not an answer. The caller must record it and then
+    /// do NOTHING else to the day: no eod stamp, no task outcomes, no plan.
+    /// </summary>
+    public bool IsCorrection => UserCheckInCorrections.IsKnown(Correction);
+}
+
+/// <summary>
+/// Phase 5 — the two things the user can say back to the evening card's assumption. The values
+/// match the stored column so a row read back is directly comparable, and the labels are the copy
+/// the card renders. Two, never three: a correction the user has to think about is not one tap.
+/// </summary>
+internal static class UserCheckInCorrections
+{
+    // "Still working." The day is not over; Ari may ask once more, later.
+    public const string NotDoneYet = "not_done_yet";
+
+    // "There was no working day here." Nothing is claimed and the evening does not return today.
+    public const string WasntWorking = "wasnt_working";
+
+    public const string AssumptionLabel = "Ari thinks your day is done.";
+
+    public static readonly (string Value, string Label)[] Options =
+    {
+        (NotDoneYet, "Not done yet"),
+        (WasntWorking, "Wasn't working today"),
+    };
+
+    public static bool IsKnown(string? value)
+        => value is NotDoneYet or WasntWorking;
 }
 
 // The morning tracking-preference chips and the midday answer chips — the locked copy/values.

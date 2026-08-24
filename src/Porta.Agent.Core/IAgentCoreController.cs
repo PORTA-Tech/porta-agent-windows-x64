@@ -158,6 +158,18 @@ public interface IAgentCoreController
     AgentDailyGoal? RecordMiddayAnswer(string answer);
     AgentDailyGoal? RecordEndOfDay(string planTomorrow);
 
+    // Phase 5 — the evening card was wrong. Records the correction WITHOUT closing the day.
+    AgentCheckInCorrection? RecordCheckInCorrection(
+        string cardKind,
+        string correction,
+        string assumedEndLocal,
+        double assumedActiveSeconds,
+        int assumedFinishedCount,
+        int assumedOpenCount);
+
+    // Phase 5 — today's corrections, oldest first. Drives the evening card's one re-arm.
+    IReadOnlyList<AgentCheckInCorrection> GetCheckInCorrectionsToday();
+
     // Part 3 — yesterday's plan_tomorrow, surfaced only while today has no stated goal, so the
     // morning check-in can open with it instead of a blank ask.
     string? GetCarriedOverPlan();

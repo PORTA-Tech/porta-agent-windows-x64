@@ -272,6 +272,11 @@ public sealed class InputSignalsBucketIntegrationTests
         public AgentDailyGoal? GetDailyGoal(string localDate) => null;
         public AgentDailyGoal? RecordMiddayGoalAnswer(string localDate, string answer, DateTimeOffset nowUtc) => null;
         public AgentDailyGoal? RecordEndOfDayPlan(string localDate, string planTomorrow, DateTimeOffset nowUtc) => null;
+        public AgentCheckInCorrection? RecordCheckInCorrection(
+            string localDate, string cardKind, string correction, string assumedEndLocal,
+            double assumedActiveSeconds, int assumedFinishedCount, int assumedOpenCount, DateTimeOffset nowUtc) => null;
+        public IReadOnlyList<AgentCheckInCorrection> ReadCheckInCorrections(string localDate)
+            => Array.Empty<AgentCheckInCorrection>();
         public AgentBrainSnapshot? ReadLatestSnapshot() => null;
         public AgentLatestStateDetails? ReadLatestStateDetails() => null;
         public AgentNotificationSuppressionStatus ReadNotificationSuppressionStatus()

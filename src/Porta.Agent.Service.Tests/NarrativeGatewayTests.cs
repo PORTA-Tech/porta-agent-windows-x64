@@ -121,6 +121,7 @@ public sealed class NarrativeGatewayTests
         public Porta.Agent.Core.AgentProject? SetProjectLabelStyle(long id, bool useClientLabels) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentProject? SetProjectRate(long id, long rateMinor, string currency) => throw new NotSupportedException();
 
+
         public Porta.Agent.Core.AgentProject? SetProjectEngagement(long id, string? status, string? startDay, string? completionDay, IReadOnlyList<string>? recipients, string? reportingFrequency) => throw new NotSupportedException();
 
         public Porta.Agent.Core.AgentProjectStats ReadProjectStats(long projectId) => throw new NotSupportedException();
@@ -154,6 +155,12 @@ public sealed class NarrativeGatewayTests
         public Porta.Agent.Core.AgentDailyGoal? GetTodayGoal() => throw new NotSupportedException();
         public Porta.Agent.Core.AgentDailyGoal? RecordMiddayAnswer(string answer) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentDailyGoal? RecordEndOfDay(string planTomorrow) => throw new NotSupportedException();
+        public Porta.Agent.Core.AgentCheckInCorrection? RecordCheckInCorrection(
+            string cardKind, string correction, string assumedEndLocal,
+            double assumedActiveSeconds, int assumedFinishedCount, int assumedOpenCount)
+            => throw new NotSupportedException();
+        public IReadOnlyList<Porta.Agent.Core.AgentCheckInCorrection> GetCheckInCorrectionsToday()
+            => Array.Empty<Porta.Agent.Core.AgentCheckInCorrection>();
         public string? GetCarriedOverPlan() => throw new NotSupportedException();
         public void SetLocalApiAuthState(bool ready, string? error) => throw new NotSupportedException();
     }

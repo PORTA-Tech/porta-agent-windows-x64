@@ -2076,6 +2076,28 @@ public sealed class AgentCoreController : IAgentCoreController
     public AgentDailyGoal? RecordEndOfDay(string planTomorrow)
         => _stateStore.RecordEndOfDayPlan(GoalDay(DateTimeOffset.Now), planTomorrow, DateTimeOffset.UtcNow);
 
+    // Phase 5 — deliberately NOT paired with RecordEndOfDay. A correction says the day is not over,
+    // so stamping it would record the opposite of what the user just said.
+    public AgentCheckInCorrection? RecordCheckInCorrection(
+        string cardKind,
+        string correction,
+        string assumedEndLocal,
+        double assumedActiveSeconds,
+        int assumedFinishedCount,
+        int assumedOpenCount)
+        => _stateStore.RecordCheckInCorrection(
+            GoalDay(DateTimeOffset.Now),
+            cardKind,
+            correction,
+            assumedEndLocal,
+            assumedActiveSeconds,
+            assumedFinishedCount,
+            assumedOpenCount,
+            DateTimeOffset.UtcNow);
+
+    public IReadOnlyList<AgentCheckInCorrection> GetCheckInCorrectionsToday()
+        => _stateStore.ReadCheckInCorrections(GoalDay(DateTimeOffset.Now));
+
     public void AcknowledgeIntervention(AgentInterventionAck ack)
     {
         if (ack is null)

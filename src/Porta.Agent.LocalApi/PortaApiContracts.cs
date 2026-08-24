@@ -1319,6 +1319,39 @@ public sealed record LocalApiGoalEndOfDayRequest(
     [property: JsonPropertyName("schema_ver")] int SchemaVer,
     [property: JsonPropertyName("plan_tomorrow")] string? PlanTomorrow);
 
+// Phase 5 — the evening card was wrong. Carries what Ari ASSUMED as well as what the user said,
+// because a correction without the prediction it corrects cannot be learned from. The assumption
+// is captured when the card is SHOWN and travels with the tap, so a slow tap cannot re-measure it.
+public sealed record LocalApiCheckInCorrectionRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("card_kind")] string? CardKind,               // end_of_day
+    [property: JsonPropertyName("correction")] string? Correction,            // not_done_yet | wasnt_working
+    [property: JsonPropertyName("assumed_end_local")] string? AssumedEndLocal,
+    [property: JsonPropertyName("assumed_active_seconds")] double AssumedActiveSeconds = 0d,
+    [property: JsonPropertyName("assumed_finished_count")] int AssumedFinishedCount = 0,
+    [property: JsonPropertyName("assumed_open_count")] int AssumedOpenCount = 0);
+
+public sealed record LocalApiCheckInCorrection(
+    [property: JsonPropertyName("id")] long Id,
+    [property: JsonPropertyName("local_date")] string LocalDate,
+    [property: JsonPropertyName("card_kind")] string CardKind,
+    [property: JsonPropertyName("correction")] string Correction,
+    [property: JsonPropertyName("assumed_end_local")] string AssumedEndLocal,
+    [property: JsonPropertyName("assumed_active_seconds")] double AssumedActiveSeconds,
+    [property: JsonPropertyName("assumed_finished_count")] int AssumedFinishedCount,
+    [property: JsonPropertyName("assumed_open_count")] int AssumedOpenCount,
+    [property: JsonPropertyName("corrected_at_utc")] DateTimeOffset CorrectedAtUtc);
+
+public sealed record LocalApiCheckInCorrectionResponse(
+    bool Success,
+    LocalApiCheckInCorrection? Correction,
+    DateTimeOffset TimestampUtc);
+
+public sealed record LocalApiCheckInCorrectionsResponse(
+    bool Success,
+    IReadOnlyList<LocalApiCheckInCorrection> Corrections,
+    DateTimeOffset TimestampUtc);
+
 public sealed record LocalApiDailyGoalResponse(
     bool Success,
     LocalApiDailyGoal? Goal,

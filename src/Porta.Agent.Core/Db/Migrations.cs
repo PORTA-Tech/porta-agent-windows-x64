@@ -169,7 +169,13 @@ internal static class Migrations
         new(
             Version: 32,
             Name: "sent_report_archive_v32",
-            Apply: Schema.ApplySentReportArchiveV32)
+            Apply: Schema.ApplySentReportArchiveV32),
+        // Phase 5 (2026-08-24) — the record behind the evening card's correction. Its own step,
+        // never an edit to a shipped one. Additive, LOCAL ONLY.
+        new(
+            Version: 33,
+            Name: "check_in_corrections_v33",
+            Apply: Schema.ApplyCheckInCorrectionsV33)
     ];
 
     internal static void Migrate(SqliteConnection connection)

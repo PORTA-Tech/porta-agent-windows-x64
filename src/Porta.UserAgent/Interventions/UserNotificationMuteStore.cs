@@ -55,6 +55,46 @@ internal sealed class UserNotificationMuteStore
         }
     }
 
+    /// <summary>
+    /// Phase 5 — releases one class's mute before the 5:00 boundary would.
+    ///
+    /// The mute is written when a card is SHOWN, not when it is answered, which is what stops a
+    /// card firing twice. That is right for every card that got an answer — and wrong for the one
+    /// case where the user's answer was "you were wrong, ask me later". Without this, "not done
+    /// yet" could not do what its label says.
+    ///
+    /// Deliberately narrow: it clears one named class and nothing else, and re-arming is still
+    /// gated by the scheduler (a delay, and a limit of one). This is not a general un-mute and must
+    /// not become one — a mute that anything may clear stops being a guarantee.
+    /// </summary>
+    public void AllowAgainToday(string classKey)
+    {
+        if (string.IsNullOrWhiteSpace(classKey))
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            try
+            {
+                Dictionary<string, string> map = Load();
+                if (map.Remove(Normalize(classKey)))
+                {
+                    Save(map);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Fails toward STILL MUTED, which is the quiet outcome: the card simply does not
+                // come back today. Logged because a correction that silently bought nothing is
+                // exactly the kind of thing that reads as "the button does nothing".
+                UserAgentFileLog.Info(
+                    $"mute_clear_failed class={Normalize(classKey)} err={ex.GetType().Name}");
+            }
+        }
+    }
+
     public bool IsMutedForToday(string classKey) => IsMutedForToday(classKey, DateTimeOffset.Now);
 
     public bool IsMutedForToday(string classKey, DateTimeOffset nowLocal)
