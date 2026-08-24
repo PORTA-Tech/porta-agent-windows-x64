@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Windows.Threading;
 using Porta.UserAgent.Interventions;
@@ -7,6 +7,29 @@ namespace Porta.UserAgent.Tests;
 
 public sealed class UserDesktopWidgetPresenterTests
 {
+    /// <summary>
+    /// How long to allow for creating a real WPF window on a fresh STA thread.
+    ///
+    /// This was 5 seconds and it made the suite flaky. The FIRST window in a process pays for
+    /// framework and theme-resource initialisation, which is instant on a warm developer machine
+    /// and can take far longer on a cold, shared CI runner. The result was
+    /// "Timed out waiting for widget window creation" on main on 2026-08-19 and again on
+    /// 2026-08-24, passing on the very next run with a superset of the same code — twice sending
+    /// someone to look for a regression that was never there.
+    ///
+    /// A generous ceiling costs nothing when the window appears promptly, which is every healthy
+    /// run: the wait returns as soon as it is signalled. It only changes how long a genuinely
+    /// hung creation takes to be reported, and a hang still fails. The assertion is unchanged —
+    /// this is a deadline for a slow machine, never a weaker check.
+    /// </summary>
+    private static readonly TimeSpan WindowCreationTimeout = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// The same reasoning for tearing a widget thread down and for the cross-thread worker: a
+    /// loaded runner is slow at both ends, not only at startup.
+    /// </summary>
+    private static readonly TimeSpan ThreadSettleTimeout = TimeSpan.FromSeconds(30);
+
     // ── Phase 4.2 — "Show when it returns" ─────────────────────────────────────────────────
     // The hide is only half the feature; the user has to be told when the widget comes back,
     // in clock time, or a timed hide is indistinguishable from the widget having crashed.
@@ -107,7 +130,7 @@ public sealed class UserDesktopWidgetPresenterTests
             widgetOwnerThread.IsBackground = true;
             widgetOwnerThread.Start();
 
-            Assert.True(created.Wait(TimeSpan.FromSeconds(5)), "Timed out waiting for widget window creation.");
+            Assert.True(created.Wait(WindowCreationTimeout), "Timed out waiting for widget window creation.");
             Assert.Null(widgetCreationFailure);
             Assert.NotNull(foreignThreadWindow);
 
@@ -132,7 +155,7 @@ public sealed class UserDesktopWidgetPresenterTests
                 }
             });
 
-            await worker.WaitAsync(TimeSpan.FromSeconds(5));
+            await worker.WaitAsync(ThreadSettleTimeout);
 
             Assert.Null(heartbeatFailure);
             Assert.False(heartbeatHealthy);
@@ -144,7 +167,7 @@ public sealed class UserDesktopWidgetPresenterTests
 
             if (widgetOwnerThread is { IsAlive: true })
             {
-                Assert.True(widgetOwnerThread.Join(TimeSpan.FromSeconds(5)), "Timed out waiting for widget owner thread shutdown.");
+                Assert.True(widgetOwnerThread.Join(ThreadSettleTimeout), "Timed out waiting for widget owner thread shutdown.");
             }
 
             Directory.Delete(tempDirectory, recursive: true);
@@ -301,7 +324,7 @@ public sealed class UserDesktopWidgetPresenterTests
                 widgetOwnerThread.IsBackground = true;
                 widgetOwnerThread.Start();
 
-                Assert.True(created.Wait(TimeSpan.FromSeconds(5)), "Timed out waiting for foreign widget window creation.");
+                Assert.True(created.Wait(WindowCreationTimeout), "Timed out waiting for foreign widget window creation.");
                 Assert.Null(widgetCreationFailure);
                 Assert.NotNull(foreignThreadWindow);
 
@@ -362,7 +385,7 @@ public sealed class UserDesktopWidgetPresenterTests
 
                 if (widgetOwnerThread is { IsAlive: true })
                 {
-                    Assert.True(widgetOwnerThread.Join(TimeSpan.FromSeconds(5)), "Timed out waiting for foreign widget owner thread shutdown.");
+                    Assert.True(widgetOwnerThread.Join(ThreadSettleTimeout), "Timed out waiting for foreign widget owner thread shutdown.");
                 }
 
                 Directory.Delete(tempDirectory, recursive: true);
@@ -498,8 +521,8 @@ public sealed class UserDesktopWidgetPresenterTests
         thread.IsBackground = true;
         thread.Start();
 
-        Assert.True(completed.Wait(TimeSpan.FromSeconds(10)), "Timed out waiting for STA widget presenter test to finish.");
-        Assert.True(thread.Join(TimeSpan.FromSeconds(5)), "Timed out waiting for STA widget presenter test thread to join.");
+        Assert.True(completed.Wait(WindowCreationTimeout), "Timed out waiting for STA widget presenter test to finish.");
+        Assert.True(thread.Join(ThreadSettleTimeout), "Timed out waiting for STA widget presenter test thread to join.");
 
         if (failure != null)
         {
