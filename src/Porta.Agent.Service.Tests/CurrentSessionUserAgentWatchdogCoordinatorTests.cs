@@ -267,6 +267,7 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
 
         public bool SetSentReportArchived(string reportId, bool archived) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentReportDraft GetReportDraft(long projectId, string fromLocalDate, string toLocalDate) => throw new NotSupportedException();
+        public Porta.Agent.Core.AgentWeeklyDigestData GetWeeklyDigestData(string fromLocalDate, string toLocalDate) => throw new NotSupportedException();
 
         // Step 10 phase C/D — this controller is deliberately unusable; the watchdog tests never
         // touch reports, and throwing keeps it that way rather than quietly returning empties.

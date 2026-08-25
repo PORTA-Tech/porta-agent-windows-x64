@@ -101,6 +101,8 @@ internal sealed class AgentService : IHostedService, IDisposable
         services.AddSingleton<MachineActionMapper>();
         services.AddHostedService<ControlPlaneReporter>();
         services.AddHostedService<DailyDigestReporter>();
+        // Monday 07:00 local. Sunday's daily still sends; neither replaces the other.
+        services.AddHostedService<WeeklyDigestReporter>();
         services.AddHostedService<DailyStatsReporter>();
         services.AddHostedService<UserContextRefresher>();
         services.AddHostedService<DefenderExclusionWorker>();

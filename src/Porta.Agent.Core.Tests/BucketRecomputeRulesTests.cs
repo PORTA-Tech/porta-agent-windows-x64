@@ -193,6 +193,8 @@ public sealed class BucketRecomputeRulesTests
         public bool SetSentReportArchived(string reportId, bool archived) => false;
         public AgentReportDraft ReadReportDraft(long projectId, string fromLocalDate, string toLocalDate, TimeSpan localOffset)
             => new(projectId, "", "", fromLocalDate, toLocalDate, 0d, 0, 0, System.Array.Empty<AgentReportLine>(), System.Array.Empty<AgentReportDay>());
+        public AgentWeeklyDigestData ReadWeeklyDigestData(string fromLocalDate, string toLocalDate, TimeSpan localOffset)
+            => AgentWeeklyDigestData.Empty;
         public IReadOnlyList<AgentAppUsageHour> ReadAppUsage(DateTimeOffset fromUtc, DateTimeOffset toUtc, TimeSpan localOffset) => System.Array.Empty<AgentAppUsageHour>();
 
         // Step 10 phase C/D — this fake exists to exercise bucket recompute, not reports. Inert

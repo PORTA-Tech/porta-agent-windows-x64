@@ -1872,6 +1872,9 @@ public sealed class AgentCoreController : IAgentCoreController
     public AgentReportDraft GetReportDraft(long projectId, string fromLocalDate, string toLocalDate)
         => _stateStore.ReadReportDraft(projectId, fromLocalDate, toLocalDate, DateTimeOffset.Now.Offset);
 
+    public AgentWeeklyDigestData GetWeeklyDigestData(string fromLocalDate, string toLocalDate)
+        => _stateStore.ReadWeeklyDigestData(fromLocalDate, toLocalDate, DateTimeOffset.Now.Offset);
+
     // Step 10 phase C/D — pass-through to the store. The rules live in ReportSendPreflight and in
     // the endpoint that orchestrates them; nothing is decided here.
     public IReadOnlyList<AgentReportRecipient> GetRecipients() => _stateStore.ReadRecipients();

@@ -172,6 +172,34 @@ internal sealed class ControlPlaneClient : IDisposable
         }
     }
 
+    /// <summary>
+    /// The weekly digest. Same shape as the daily's post and the same failure behaviour: a false
+    /// return means the caller does not mark the week sent, so the next poll retries.
+    /// </summary>
+    public async Task<bool> PostWeeklyDigestAsync(WeeklyDigestReportPayload payload, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+
+        if (_httpClient is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            using HttpResponseMessage response = await _httpClient.PostAsJsonAsync(
+                "api/agent/weekly-digest",
+                payload,
+                JsonOptions,
+                token).ConfigureAwait(false);
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public async Task<bool> PostDailyDigestAsync(DailyDigestReportPayload payload, CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(payload);

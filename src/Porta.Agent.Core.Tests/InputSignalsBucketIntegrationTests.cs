@@ -252,6 +252,8 @@ public sealed class InputSignalsBucketIntegrationTests
         public bool SetSentReportArchived(string reportId, bool archived) => false;
         public AgentReportDraft ReadReportDraft(long projectId, string fromLocalDate, string toLocalDate, TimeSpan localOffset)
             => new(projectId, "", "", fromLocalDate, toLocalDate, 0d, 0, 0, System.Array.Empty<AgentReportLine>(), System.Array.Empty<AgentReportDay>());
+        public AgentWeeklyDigestData ReadWeeklyDigestData(string fromLocalDate, string toLocalDate, TimeSpan localOffset)
+            => AgentWeeklyDigestData.Empty;
 
     // Step 10 phase C/D — inert stubs. This fake exists for other behaviour; reports are covered by
     // their own suites, and returning empties here keeps that boundary obvious.

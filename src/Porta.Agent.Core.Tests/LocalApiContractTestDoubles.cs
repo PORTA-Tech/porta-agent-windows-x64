@@ -131,6 +131,8 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignal
     public bool SetSentReportArchived(string reportId, bool archived) => false;
     public AgentReportDraft ReadReportDraft(long projectId, string fromLocalDate, string toLocalDate, TimeSpan localOffset)
         => new(projectId, "", "", fromLocalDate, toLocalDate, 0d, 0, 0, System.Array.Empty<AgentReportLine>(), System.Array.Empty<AgentReportDay>());
+    public AgentWeeklyDigestData ReadWeeklyDigestData(string fromLocalDate, string toLocalDate, TimeSpan localOffset)
+        => AgentWeeklyDigestData.Empty;
     public IReadOnlyList<AgentAppUsageHour> ReadAppUsage(DateTimeOffset fromUtc, DateTimeOffset toUtc, TimeSpan localOffset) => System.Array.Empty<AgentAppUsageHour>();
 
     // Step 10 phase C/D — a real in-memory address book and sent-report list, not throwing stubs,

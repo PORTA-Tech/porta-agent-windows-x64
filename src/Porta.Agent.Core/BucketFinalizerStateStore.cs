@@ -131,6 +131,9 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
     public AgentReportDraft ReadReportDraft(long projectId, string fromLocalDate, string toLocalDate, TimeSpan localOffset)
         => _inner.ReadReportDraft(projectId, fromLocalDate, toLocalDate, localOffset);
 
+    public AgentWeeklyDigestData ReadWeeklyDigestData(string fromLocalDate, string toLocalDate, TimeSpan localOffset)
+        => _inner.ReadWeeklyDigestData(fromLocalDate, toLocalDate, localOffset);
+
     // Step 10 phase C/D — straight delegation, like everything else on this decorator.
     public IReadOnlyList<AgentReportRecipient> ReadRecipients() => _inner.ReadRecipients();
 

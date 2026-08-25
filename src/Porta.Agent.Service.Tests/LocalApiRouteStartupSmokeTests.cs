@@ -310,6 +310,7 @@ public sealed class LocalApiRouteStartupSmokeTests
 
         public bool SetSentReportArchived(string reportId, bool archived) => false;
         public AgentReportDraft GetReportDraft(long projectId, string fromLocalDate, string toLocalDate) => throw new NotSupportedException();
+        public AgentWeeklyDigestData GetWeeklyDigestData(string fromLocalDate, string toLocalDate) => throw new NotSupportedException();
 
     // Step 10 phase C/D — inert stubs, same reasoning as above.
     public IReadOnlyList<AgentReportRecipient> GetRecipients() => System.Array.Empty<AgentReportRecipient>();

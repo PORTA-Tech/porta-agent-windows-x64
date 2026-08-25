@@ -1,0 +1,163 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Ari weekly digest — mockup</title>
+<style>
+body{background:#05070A;margin:0;padding:32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#6F7885}
+.wrap{display:flex;gap:40px;align-items:flex-start;flex-wrap:wrap}
+.pane{background:#0B0D11;padding:16px;border-radius:14px}
+.pane h3{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#6F7885;margin:0 0 12px;font-weight:500}
+.notes{max-width:400px;font-size:13px;line-height:1.65;color:#8B929E}
+.notes h2{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#F2F4F7;margin:0 0 12px}
+.notes p{margin:0 0 13px}
+.notes b{color:#DFE3E9;font-weight:600}
+</style></head><body>
+<div class="wrap">
+
+<div class="pane"><h3>Phone · 390px</h3>
+<div id="phone"></div></div>
+
+<div class="pane"><h3>Desktop · 600px</h3>
+<div id="desk"></div></div>
+
+<div class="notes">
+<h2>The weekly, and how it differs from the daily</h2>
+<p>The daily answers <b>how did today go</b>. The weekly answers <b>did the week go where I meant it to</b>, so it is built from days and projects rather than from hours and apps. Same tokens, same green rule: green means work that counted, nothing else.</p>
+<p><b>The week strip</b> replaces the daily timeline. One bar per day, filled to focused time. A day not worked is an empty track, never a zero bar, because a gap and a bad day are not the same thing. Under three worked days the strip is replaced by a sentence, same rule the client report follows.</p>
+<p><b>Finished and carried are separate blocks.</b> Finished is the week's evidence. Carried names how many days each thing has been open, which is the only number that tells you something is stuck rather than slow.</p>
+<p><b>Where the week went is by project, not by app.</b> On a single day the app split is a useful mirror. Across a week it says nothing you can act on, and the project split says everything. Apps stay on the daily.</p>
+<p><b>Ari's take</b> is the same serif voice as the daily, drafted from result lines and statuses only, never from app usage.</p>
+<p style="color:#6F7885">Every column carries its width inline as well as as an attribute, and every bar carries its proportion inline, so this survives Gmail iOS stripping attributes — the failure fixed on the daily this afternoon.</p>
+<p style="color:#6F7885">One thing worth deciding separately: your phone renders the daily card light, not dark. Gmail inverts it. The mockup is the dark original.</p>
+</div>
+</div>
+
+<script>
+const A='#3FBF7F',CARD='#14171C',HAIR='#2A3038',HEAD='#F2F4F7',BODY='#DFE3E9',MUT='#8B929E',MET='#6F7885',AWAY='#232931',TRACK='#171A20';
+const SANS="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
+const SERIF="Georgia,'Times New Roman',serif";
+const L=`font-size:10px;color:${MET};text-transform:uppercase;`;
+
+const days=[["Mon",6.2],["Tue",7.4],["Wed",5.1],["Thu",8.0],["Fri",3.5],["Sat",1.5],["Sun",0]];
+const finished=[["Rewrite onboarding email","Northbridge","1h 25m"],["Send March invoices","Admin","40m"],["Phase 5 correction card","PORTA","3h 24m"],["Prospect list build","Target Prospect","4h 54m"]];
+const carried=[["Landing page copy","Northbridge",3,"2h 10m"],["Daily digest email","PORTA",2,"1h 02m"]];
+const projects=[["PORTA",14.6],["Target Prospect",8.2],["Northbridge",5.4],["Admin",3.5]];
+
+function bar(w,frac,fill){
+  const px=Math.max(2,Math.round(w*frac));
+  return `<table role="presentation" width="${w}" cellpadding="0" cellspacing="0" border="0" style="width:${w}px;table-layout:fixed;"><tr>
+  <td width="${px}" style="width:${px}px;height:5px;background:${fill};border-radius:3px;font-size:0;line-height:0;">&nbsp;</td>
+  <td width="${w-px}" style="width:${w-px}px;height:5px;background:${AWAY};border-radius:3px;font-size:0;line-height:0;">&nbsp;</td></tr></table>`;
+}
+
+function card(W){
+  const pad = W<450 ? 20 : 32;
+  const inner = W - pad*2;
+  const dayW = Math.floor((inner-6*4)/7);
+  const projBar = W<450 ? Math.round(inner*0.42) : 260;
+  const taskVal = W<450 ? 62 : 76;
+
+  const weekStrip = days.map(([d,h])=>{
+    const frac = h/8;
+    const fh = h===0?0:Math.max(6,Math.round(64*frac));
+    return `<td width="${dayW}" style="width:${dayW}px;vertical-align:bottom;padding-right:4px;">
+      <div style="height:64px;background:${TRACK};border-radius:3px;position:relative;font-size:0;">
+        <div style="position:absolute;bottom:0;left:0;right:0;height:${fh}px;background:${h===0?'transparent':A};border-radius:3px;"></div>
+      </div>
+      <div style="${L}text-align:center;padding-top:6px;">${d}</div>
+      <div style="font-size:11px;color:${h===0?MET:BODY};text-align:center;">${h===0?'—':h.toFixed(1)+'h'}</div>
+    </td>`;
+  }).join('');
+
+  const finRows = finished.map(([t,p,v])=>`
+   <tr><td style="padding:0 0 9px 0;">
+     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;table-layout:fixed;"><tr>
+       <td style="width:${inner-taskVal-10}px;padding-right:10px;font-size:13px;color:${BODY};">
+         <span style="color:${A};">&#10003;</span> ${t}<span style="color:${MET};">&nbsp;&middot;&nbsp;${p}</span></td>
+       <td width="${taskVal}" style="width:${taskVal}px;font-size:13px;color:${BODY};text-align:right;">${v}</td>
+     </tr></table></td></tr>`).join('');
+
+  const carRows = carried.map(([t,p,d,v])=>`
+   <tr><td style="padding:0 0 9px 0;">
+     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;table-layout:fixed;"><tr>
+       <td style="width:${inner-taskVal-10}px;padding-right:10px;font-size:13px;color:${BODY};">
+         ${t}<span style="color:${MET};">&nbsp;&middot;&nbsp;${p}</span>
+         <div style="font-size:11px;color:${MET};padding-top:2px;">open ${d} days</div></td>
+       <td width="${taskVal}" style="width:${taskVal}px;font-size:13px;color:${MUT};text-align:right;vertical-align:top;">${v}</td>
+     </tr></table></td></tr>`).join('');
+
+  const nums=[["WORKED","41h 12m"],["FOCUSED","31h 40m"],["BEST DAY","Thu 8h"],["AWAY","9h 32m"]];
+  const numW=Math.floor(inner/4);
+  const numRow=nums.map(([k,v])=>`<td width="${numW}" style="width:${numW}px;padding-right:8px;vertical-align:top;">
+      <div style="${L}padding-bottom:4px;">${k}</div>
+      <div style="font-size:${W<450?15:17}px;color:${HEAD};">${v}</div></td>`).join('');
+
+  const max=projects[0][1];
+  const projRows=projects.map(([n,h])=>`
+    <tr><td style="padding:0 0 8px 0;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;table-layout:fixed;"><tr>
+        <td style="width:${inner-projBar-56-16}px;padding-right:8px;font-size:13px;color:${BODY};">${n}</td>
+        <td width="${projBar}" style="width:${projBar}px;padding-right:8px;">${bar(projBar,h/max,A)}</td>
+        <td width="56" style="width:56px;font-size:13px;color:${BODY};text-align:right;">${h.toFixed(1)}h</td>
+      </tr></table></td></tr>`).join('');
+
+  return `
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:${W}px;max-width:${W}px;margin:0 auto;background:${CARD};border:0.5px solid ${HAIR};border-radius:12px;font-family:${SANS};">
+  <tr><td style="padding:22px ${pad}px 0 ${pad}px;">
+    <div style="font-size:15px;font-weight:500;color:${HEAD};letter-spacing:-0.1px;">Ari <span style="color:${MET};font-weight:400;">by Porta</span></div>
+  </td></tr>
+  <tr><td style="padding:20px ${pad}px 0 ${pad}px;">
+    <div style="${L}">Your week at a glance</div>
+    <div style="font-size:13px;color:${MUT};padding-top:6px;">Mon 17 &ndash; Sun 23 August 2026</div>
+    <div style="font-size:${W<450?22:25}px;color:${HEAD};line-height:1.25;padding-top:16px;">You planned 18 things.<br>You finished 11.</div>
+    <div style="font-size:13px;color:${MUT};padding-top:8px;">31h 40m focused across six worked days.</div>
+  </td></tr>
+
+  <tr><td style="padding:20px ${pad}px 0 ${pad}px;"><div style="height:0.5px;background:${HAIR};font-size:0;line-height:0;">&nbsp;</div></td></tr>
+  <tr><td style="padding:18px ${pad}px 0 ${pad}px;">
+    <div style="${L}padding-bottom:12px;">The week</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;table-layout:fixed;"><tr>${weekStrip}</tr></table>
+    <div style="font-size:11px;color:${MET};padding-top:10px;">Focused time each day. Sunday not worked.</div>
+  </td></tr>
+
+  <tr><td style="padding:20px ${pad}px 0 ${pad}px;"><div style="height:0.5px;background:${HAIR};font-size:0;line-height:0;">&nbsp;</div></td></tr>
+  <tr><td style="padding:18px ${pad}px 0 ${pad}px;">
+    <div style="${L}padding-bottom:12px;">What you finished</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;">${finRows}</table>
+  </td></tr>
+
+  <tr><td style="padding:12px ${pad}px 0 ${pad}px;">
+    <div style="${L}padding-bottom:12px;">What carried</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;">${carRows}</table>
+  </td></tr>
+
+  <tr><td style="padding:20px ${pad}px 0 ${pad}px;"><div style="height:0.5px;background:${HAIR};font-size:0;line-height:0;">&nbsp;</div></td></tr>
+  <tr><td style="padding:18px ${pad}px 0 ${pad}px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;table-layout:fixed;"><tr>${numRow}</tr></table>
+  </td></tr>
+
+  <tr><td style="padding:20px ${pad}px 0 ${pad}px;"><div style="height:0.5px;background:${HAIR};font-size:0;line-height:0;">&nbsp;</div></td></tr>
+  <tr><td style="padding:18px ${pad}px 0 ${pad}px;">
+    <div style="${L}padding-bottom:12px;">Where the week went</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;">${projRows}</table>
+    <div style="font-size:11px;color:${MET};padding-top:4px;">By project. Untagged time is not shown.</div>
+  </td></tr>
+
+  <tr><td style="padding:20px ${pad}px 0 ${pad}px;"><div style="height:0.5px;background:${HAIR};font-size:0;line-height:0;">&nbsp;</div></td></tr>
+  <tr><td style="padding:18px ${pad}px 0 ${pad}px;">
+    <div style="${L}padding-bottom:10px;">Ari's take</div>
+    <div style="font-family:${SERIF};font-size:15px;line-height:1.6;color:${BODY};">
+      Eleven of eighteen closed, and the four that finished all belong to work someone is waiting on. The landing page copy has been open three days now against a two hour estimate, which is the one to look at. Thursday carried the week at eight hours; Friday and Saturday together came to five, so the week front-loaded rather than evened out.
+    </div>
+  </td></tr>
+
+  <tr><td style="padding:22px ${pad}px 0 ${pad}px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background:${A};border-radius:6px;"><tr>
+      <td align="center" style="padding:11px 0;font-size:13px;color:#0E2A1C;font-weight:500;">Open Ari</td></tr></table>
+  </td></tr>
+  <tr><td style="padding:16px ${pad}px 22px ${pad}px;">
+    <div style="font-size:11px;color:${MET};">Sent by Ari &middot; useporta.com</div>
+  </td></tr>
+</table>`;
+}
+document.getElementById('phone').innerHTML=card(390);
+document.getElementById('desk').innerHTML=card(600);
+</script>
+</body></html>

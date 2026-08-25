@@ -121,6 +121,13 @@ public interface IAgentCoreController
     IReadOnlyList<AgentTaskRow> ReadAllTaskRows();
     AgentReportDraft GetReportDraft(long projectId, string fromLocalDate, string toLocalDate);
 
+    /// <summary>
+    /// The weekly digest's task side for one goal-day week, across every project. Inclusive bounds,
+    /// "yyyy-MM-dd". The day shape and the week's seconds do NOT come from here — they come from
+    /// the timeline, so the strip and the figures cannot disagree with each other.
+    /// </summary>
+    AgentWeeklyDigestData GetWeeklyDigestData(string fromLocalDate, string toLocalDate);
+
     // Step 10 phase C/D — the address book (local only) and the record of what was sent.
     IReadOnlyList<AgentReportRecipient> GetRecipients();
 

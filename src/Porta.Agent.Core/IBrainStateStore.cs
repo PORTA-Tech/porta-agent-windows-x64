@@ -111,6 +111,13 @@ public interface IBrainStateStore
         string toLocalDate,
         TimeSpan localOffset);
 
+    // The weekly digest's task side, across ALL projects, for one goal-day week. Both bounds are
+    // inclusive goal days. Hours come from task_day_hours, not the rollup — see the implementation.
+    AgentWeeklyDigestData ReadWeeklyDigestData(
+        string fromLocalDate,
+        string toLocalDate,
+        TimeSpan localOffset);
+
     // Step 10 phase C/D (2026-08-14) — the address book and the record of what was sent.
     // The book is LOCAL ONLY: nothing here uploads it, and only the one address on the report
     // being sent ever leaves the machine (§12.4).

@@ -134,6 +134,7 @@ public sealed class NarrativeGatewayTests
 
         public bool SetSentReportArchived(string reportId, bool archived) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentReportDraft GetReportDraft(long projectId, string fromLocalDate, string toLocalDate) => throw new NotSupportedException();
+        public Porta.Agent.Core.AgentWeeklyDigestData GetWeeklyDigestData(string fromLocalDate, string toLocalDate) => throw new NotSupportedException();
 
     // Step 10 phase C/D — inert stubs, same reasoning as above.
     public IReadOnlyList<AgentReportRecipient> GetRecipients() => System.Array.Empty<AgentReportRecipient>();
