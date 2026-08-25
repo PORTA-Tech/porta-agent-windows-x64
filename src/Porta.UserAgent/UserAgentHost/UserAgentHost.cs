@@ -1985,9 +1985,13 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         // writes the per-day mute: after TryShowGatedCheckIn every card looks like a repeat.
         bool isFirstCardToday = !UserCheckInScheduler.AllKinds.Any(IsCheckInOffered);
 
+        // Item 8 — a morning card arriving after 11:00 is a late-start plan card, so it is worded
+        // for the rest of the day. Same predicate the scheduler turned on.
+        bool restOfDay = kind == UserCheckInKind.Morning && UserCheckInDayTiming.IsRestOfDayCard(nowLocal);
+
         UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
             kind, goal, metrics, goalResponse.CarriedPlanTomorrow, narrativeLine: null, middaySkipped, awayGap,
-            board, yesterday, projects, offersNotWorkingToday: isFirstCardToday);
+            board, yesterday, projects, offersNotWorkingToday: isFirstCardToday, restOfDay: restOfDay);
 
         bool shown = _interventionExecutor.TryShowGatedCheckIn(
             UserCheckInScheduler.MuteClassFor(kind),

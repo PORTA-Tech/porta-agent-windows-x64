@@ -57,6 +57,25 @@ internal static class UserCheckInDayTiming
     public const int MorningLatestHour = 11;
 
     /// <summary>
+    /// Item 8 (2026-08-25) — the twin of the ceiling above, and the reason the ceiling can stay
+    /// exactly where it is.
+    ///
+    /// The ceiling created a hole: a day whose first card opportunity came after 11:00 got NO
+    /// morning card, so no tasks were captured; and because the midday and evening arms both gate
+    /// on the morning having been offered, the whole day then recorded nothing. A noon start was a
+    /// silent day.
+    ///
+    /// So past 11:00 the first card of the day still appears — same card, same job — but worded
+    /// for what is LEFT of the day rather than for a day that has not started. That needs its own
+    /// ceiling, or the 23:00 card the morning ceiling was built to kill comes straight back
+    /// through this door. Past this hour there is no day ahead to plan for, however it is worded.
+    ///
+    /// 20:00 is Claude's choice, not Yadin's: late enough that a genuine evening start still gets
+    /// its card, early enough that nothing arrives at midnight. One line to move.
+    /// </summary>
+    public const int LatePlanLatestHour = 20;
+
+    /// <summary>
     /// When there is no estimate to expire (no active task), the first midday falls back to the
     /// fraction the four-card model would have given it anyway. Keeps one rule instead of two.
     /// </summary>
@@ -129,6 +148,46 @@ internal static class UserCheckInDayTiming
         => nowLocal.Hour >= MorningLatestHour
             ? TimingDecision.No($"past_morning_ceiling:{nowLocal:HH\\:mm}>={MorningLatestHour}:00")
             : TimingDecision.Yes("within_morning_window");
+
+    /// <summary>
+    /// Item 8 — whether the LATE-START plan card may be offered, once the morning ceiling has
+    /// refused the ordinary one. The ceiling is untouched: this is a second, later door with its
+    /// own lock, not a wider first one.
+    ///
+    /// Three conditions, and the first is the one that matters most. <b>Work must actually have
+    /// started.</b> WorkStartLocal is the first bucket carrying REAL work (Chat 2 changed it from
+    /// "any bucket"), so a laptop merely opened and left idle never reaches this at all — which is
+    /// precisely the 23:00 case the morning ceiling exists for, and it stays dead here.
+    ///
+    /// Deliberately keyed on NOW rather than on when work started, because it answers "is there
+    /// still a day ahead", and that is a question about now. It therefore also covers a case the
+    /// decision did not name: work that began at 09:00 on a machine whose agent was down until
+    /// noon. The hole is identical — the first card opportunity is past 11:00 and the day records
+    /// nothing — and one rule closing both is better than two rules that can drift.
+    /// </summary>
+    public static TimingDecision IsLatePlanDue(DateTimeOffset nowLocal, WorkDaySnapshot day)
+    {
+        if (day.WorkStartLocal is null)
+        {
+            return TimingDecision.No("no_work_start");
+        }
+
+        if (nowLocal.Hour < MorningLatestHour)
+        {
+            return TimingDecision.No("within_morning_window");
+        }
+
+        return nowLocal.Hour >= LatePlanLatestHour
+            ? TimingDecision.No($"past_plan_ceiling:{nowLocal:HH\\:mm}>={LatePlanLatestHour}:00")
+            : TimingDecision.Yes($"late_start_plan:{nowLocal:HH\\:mm}");
+    }
+
+    /// <summary>
+    /// Whether a morning card showing NOW should be worded for the rest of the day rather than for
+    /// the whole of it. Same predicate the arm above turns on, so the words and the decision to
+    /// speak cannot disagree about which kind of card this is.
+    /// </summary>
+    public static bool IsRestOfDayCard(DateTimeOffset nowLocal) => nowLocal.Hour >= MorningLatestHour;
 
     /// <summary>
     /// Clamps a learned day length into something sane, falling back to the default when there is

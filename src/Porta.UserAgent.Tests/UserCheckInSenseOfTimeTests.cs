@@ -100,11 +100,22 @@ public sealed class UserCheckInSenseOfTimeTests
                 At(9, 5), new DailyGoalSnapshot(false, false, false, null),
                 Day(workStart: At(9)), NoneOffered).Kind);
 
+    // SUPERSEDED by item 8 (2026-08-25). This used to assert that NO card appeared at or after
+    // 11:00 — which was the hole, not the fix: no card meant no tasks captured, and because the
+    // midday and evening arms both gate on the morning having been offered, the whole day then
+    // recorded nothing. The ceiling itself is untouched; a second, differently worded card now
+    // comes through behind it. See UserCheckInLateStartTests for the rest.
     [Fact]
-    public void NoMorningCardAtElevenOrLater()
-        => Assert.Null(UserCheckInScheduler.DecideCheckIn(
+    public void AtElevenTheOrdinaryMorningCardIsRefusedButThePlanCardStillComes()
+    {
+        (UserCheckInKind? kind, string reason) = UserCheckInScheduler.DecideCheckIn(
             At(11), new DailyGoalSnapshot(false, false, false, null),
-            Day(workStart: At(11)), NoneOffered).Kind);
+            Day(workStart: At(11)), NoneOffered);
+
+        Assert.False(UserCheckInDayTiming.IsMorningDue(At(11)).Due);
+        Assert.Equal(UserCheckInKind.Morning, kind);
+        Assert.Contains("late_start_plan", reason, StringComparison.Ordinal);
+    }
 
     // The symptom exactly: laptop opened at 23:00 on a day that was never worked.
     [Fact]

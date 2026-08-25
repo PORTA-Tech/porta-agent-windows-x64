@@ -196,7 +196,18 @@ internal static class UserCheckInScheduler
                 return (UserCheckInKind.Morning, "morning:first_activity");
             }
 
-            return (null, $"morning_suppressed:{morning.Reason}");
+            // Item 8 (2026-08-25) — past the ceiling, the first card of the day is STILL a plan
+            // card; it is only worded differently. Without this the arm above was the whole rule,
+            // and a day that started after 11:00 got no card at all — which then suppressed the
+            // midday and evening cards too, because both gate on the morning having been offered.
+            // A noon start recorded nothing whatever.
+            UserCheckInDayTiming.TimingDecision latePlan = UserCheckInDayTiming.IsLatePlanDue(nowLocal, day);
+            if (latePlan.Due)
+            {
+                return (UserCheckInKind.Morning, $"morning:{latePlan.Reason}");
+            }
+
+            return (null, $"morning_suppressed:{morning.Reason}/{latePlan.Reason}");
         }
 
         return (null, "none_due");

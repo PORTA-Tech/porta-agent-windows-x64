@@ -68,7 +68,11 @@ internal static class UserCheckInCoordinator
         IReadOnlyList<UserCheckInProject>? projects = null,
         // Chat 2 — this is the first card of the day, so it carries the day-off tap. Defaults off,
         // so every existing caller and test is unaffected.
-        bool offersNotWorkingToday = false)
+        bool offersNotWorkingToday = false,
+        // Item 8 — this morning card is arriving after 11:00, so it is about what is LEFT of the
+        // day. Same card and same job; only the words change. Defaults off, so every existing
+        // caller and test is unaffected.
+        bool restOfDay = false)
     {
         string goalText = (goal?.GoalText ?? string.Empty).Trim();
         string plan = (carriedPlan ?? string.Empty).Trim();
@@ -90,8 +94,14 @@ internal static class UserCheckInCoordinator
             // carried-plan copy below because a real open task beats a sentence typed last night.
             UserCheckInKind.Morning when open.Count > 0 => new UserCheckInPrompt(
                 Kind: UserCheckInKind.Morning,
-                Title: open.Count == 1 ? "Still on this today?" : "Today's list — look right?",
-                Message: line.Length > 0 ? line : BuildProposalTemplate(open),
+                Title: restOfDay
+                    ? "The rest of today"
+                    : open.Count == 1 ? "Still on this today?" : "Today's list — look right?",
+                Message: line.Length > 0
+                    ? line
+                    : restOfDay
+                        ? "Less of the day left than usual, so keep it short. Here's what's still open."
+                        : BuildProposalTemplate(open),
                 Tasks: open,
                 CarriedNotice: carriedNotice,
                 Yesterday: lastDay,
@@ -102,8 +112,12 @@ internal static class UserCheckInCoordinator
             // instead of a blank ask. The plan pre-fills the goal box so confirming is one click.
             UserCheckInKind.Morning when plan.Length > 0 => new UserCheckInPrompt(
                 Kind: UserCheckInKind.Morning,
-                Title: "Still the goal for today?",
-                Message: line.Length > 0 ? line : $"Last night you planned: “{plan}”. Confirm it or change it below.",
+                Title: restOfDay ? "The rest of today" : "Still the goal for today?",
+                Message: line.Length > 0
+                    ? line
+                    : restOfDay
+                        ? $"Less of the day left than usual, so keep it short. Last night you planned: “{plan}”."
+                        : $"Last night you planned: “{plan}”. Confirm it or change it below.",
                 PrefillGoalText: plan,
                 Yesterday: lastDay,
                 YesterdaySummary: yesterdaySummary,
@@ -120,8 +134,12 @@ internal static class UserCheckInCoordinator
             // ask ABOUT.
             UserCheckInKind.Morning => new UserCheckInPrompt(
                 Kind: UserCheckInKind.Morning,
-                Title: "Today",
-                Message: line.Length > 0 ? line : "Name today's focus and I'll help you protect it.",
+                Title: restOfDay ? "The rest of today" : "Today",
+                Message: line.Length > 0
+                    ? line
+                    : restOfDay
+                        ? "Less of the day left than usual. Name what you'll get to and I'll protect it."
+                        : "Name today's focus and I'll help you protect it.",
                 Yesterday: lastDay,
                 YesterdaySummary: yesterdaySummary,
                 Projects: projects),
