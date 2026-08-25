@@ -1067,8 +1067,30 @@
                                             CornerRadius="{StaticResource RpCornerOuter}"
                                             Padding="20" Margin="0,0,0,14">
                                         <StackPanel>
-                                            <TextBlock x:Name="ReportHeaderText" FontSize="22" FontWeight="Medium" Foreground="{StaticResource RpTextPrimary}" Margin="0,0,0,2" TextWrapping="Wrap" />
-                                            <TextBlock x:Name="ReportRangeText" Style="{StaticResource RpBody}" Margin="0,0,0,18" />
+                                            <!-- Item 4 (Chat 8 decision, 2026-08-25) — the name the client sees is edited HERE,
+                                                 on the screen where it is read. It used to be a read-only headline that told you
+                                                 to go and fix it on the Projects page: the single biggest piece of text a client
+                                                 reads, corrected on a different screen from the one you are checking it on.
+                                                 Label above the input, plain question, sentence case — the locked rule. -->
+                                            <TextBlock Text="What should your client call this project?" Style="{StaticResource RpBody}" Margin="0,0,0,1" />
+                                            <TextBlock Text="The biggest text on the page they receive." Style="{StaticResource RpMeta}" Margin="0,0,0,6" />
+                                            <Grid Margin="0,0,0,2">
+                                                <TextBox x:Name="ReportClientNameBox" FontSize="22" FontWeight="Medium"
+                                                         Style="{StaticResource RpInlineEditBox}"
+                                                         Foreground="{StaticResource RpTextPrimary}" TextWrapping="Wrap" />
+                                                <TextBlock x:Name="ReportClientNamePlaceholder" Text="Name this project for your client"
+                                                           FontSize="22" FontStyle="Italic" Foreground="{StaticResource RpTextMuted}"
+                                                           VerticalAlignment="Center" Margin="8,0,0,0" IsHitTestVisible="False"
+                                                           Visibility="Collapsed" TextWrapping="Wrap" />
+                                            </Grid>
+                                            <!-- The private name stays visible and stays private. It is how you tell which
+                                                 project this is; it has never left the machine and still does not. -->
+                                            <TextBlock x:Name="ReportLocalNameText" Style="{StaticResource RpMeta}" Margin="0,0,0,4" TextWrapping="Wrap" />
+                                            <TextBlock x:Name="ReportRangeText" Style="{StaticResource RpBody}" Margin="0,0,0,2" />
+                                            <!-- Everything below the name is measured. Said once, quietly, so the absence of an
+                                                 edit affordance reads as deliberate rather than as something not built yet. -->
+                                            <TextBlock Text="Dates and hours are measured. They are never editable."
+                                                       Style="{StaticResource RpMeta}" Margin="0,0,0,18" />
 
                                             <Border Background="{StaticResource RpPanel}"
                                                     BorderBrush="{StaticResource RpHairline}"

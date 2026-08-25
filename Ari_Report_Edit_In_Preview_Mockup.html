@@ -1,0 +1,210 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Ari — editing the report in preview (item 4)</title>
+<style>
+  :root{
+    --page:#0B0D11; --card:#14171C; --hair:#2A3038;
+    --text:#F2F4F7; --muted:#8B929E; --quiet:#6F7885; --grey:#5A626D;
+    --accent:#3FBF7F; --field:#1A1E25; --fieldline:#333B45;
+  }
+  body{margin:0;background:var(--page);color:var(--text);
+       font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;}
+  .head{padding:18px 24px;border-bottom:1px solid var(--hair);}
+  .head h1{margin:0;font-size:17px;font-weight:600;}
+  .head p{margin:6px 0 0;color:var(--muted);font-size:12.5px;max-width:900px;}
+  .wrap{display:flex;gap:26px;align-items:flex-start;padding:22px 24px;flex-wrap:wrap;}
+  .col{flex:1 1 520px;min-width:460px;}
+  .colhead{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--quiet);
+           margin:0 0 4px;font-weight:600;}
+  .colsub{font-size:11.5px;color:var(--grey);margin:0 0 12px;}
+  .screen{background:var(--card);border:1px solid var(--hair);border-radius:10px;padding:18px;}
+  .eyebrow{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--quiet);}
+  .sec{margin-top:18px;}
+  .rule{height:1px;background:var(--hair);margin:16px 0;}
+  .row{background:#161A20;border:.5px solid var(--hair);border-radius:8px;padding:11px 12px;
+       margin-bottom:8px;display:flex;gap:11px;align-items:flex-start;}
+  .cb{width:14px;height:14px;border:1.5px solid var(--grey);border-radius:3px;margin-top:3px;
+      flex:0 0 auto;position:relative;}
+  .cb.on{background:var(--accent);border-color:var(--accent);}
+  .cb.on:after{content:'';position:absolute;left:4px;top:1px;width:3px;height:7px;
+       border:solid #0E2A1C;border-width:0 1.6px 1.6px 0;transform:rotate(45deg);}
+  .body{flex:1 1 auto;min-width:0;}
+  .hours{flex:0 0 auto;text-align:right;}
+  .hours b{display:block;font-size:15px;font-weight:500;}
+  .hours span{display:block;font-size:10.5px;color:var(--quiet);margin-top:2px;}
+  .title{font-size:13px;}
+  .mine{font-size:11px;color:var(--quiet);margin-top:4px;}
+  .lock{font-size:10.5px;color:var(--grey);margin-top:8px;}
+
+  /* an editable field: a real box, so there is something to aim at */
+  .fieldlabel{font-size:11px;color:var(--muted);margin:10px 0 4px;}
+  .fieldhelp{font-size:10.5px;color:var(--quiet);margin:0 0 5px;}
+  .field{background:var(--field);border:1px solid var(--fieldline);border-radius:6px;
+         padding:7px 9px;font-size:12.5px;color:var(--text);}
+  .field.empty{color:var(--quiet);font-style:italic;}
+  .field.focus{border-color:var(--accent);}
+  .caret{display:inline-block;width:1px;height:13px;background:var(--accent);
+         vertical-align:-2px;margin-left:1px;animation:b 1s steps(1) infinite;}
+  @keyframes b{50%{opacity:0}}
+
+  .bar{height:5px;border-radius:3px;background:#232931;margin-top:9px;overflow:hidden;}
+  .bar i{display:block;height:5px;background:var(--accent);}
+  .note{font-size:11px;color:var(--quiet);margin-top:10px;}
+  .warn{font-size:11.5px;color:#D9A441;margin-top:8px;}
+  .old{opacity:.55;}
+  .tag{display:inline-block;font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;
+       border:1px solid var(--fieldline);border-radius:3px;padding:1px 5px;color:var(--quiet);
+       margin-left:6px;vertical-align:1px;}
+  .tag.edit{border-color:#2F6B4E;color:var(--accent);}
+  .legend{padding:0 24px 26px;max-width:1100px;}
+  .legend h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--quiet);
+             margin:18px 0 8px;}
+  .legend li{font-size:12.5px;color:var(--muted);margin-bottom:7px;line-height:1.55;}
+  .legend b{color:var(--text);font-weight:600;}
+</style>
+<body>
+
+<div class="head">
+  <h1>Editing the report in preview — item 4</h1>
+  <p>Two things become editable on the draft screen, and nothing else. Left is what is there today;
+     right is the proposal. The green <span class="tag edit">edit</span> marks what changes.</p>
+</div>
+
+<div class="wrap">
+
+  <!-- ─────────────── BEFORE ─────────────── -->
+  <div class="col">
+    <div class="colhead">Today</div>
+    <div class="colsub">The draft screen as it stands.</div>
+    <div class="screen old">
+
+      <div class="eyebrow">The report</div>
+      <div style="font-size:19px;margin-top:7px;">Northbridge — Website rebuild</div>
+      <div style="font-size:11.5px;color:var(--quiet);margin-top:5px;">
+        17 – 23 August 2026 &nbsp;·&nbsp; 11.4h &nbsp;·&nbsp; 5 days worked
+      </div>
+
+      <div class="rule"></div>
+      <div class="eyebrow">The work</div>
+
+      <div class="row" style="margin-top:12px;">
+        <div class="cb on"></div>
+        <div class="body">
+          <div class="field">Onboarding email rewrite</div>
+          <div class="mine">your title: nolan — onboarding seq v2</div>
+          <div class="bar"><i style="width:64%"></i></div>
+        </div>
+        <div class="hours"><b>3.2h</b><span>done</span></div>
+      </div>
+
+      <div class="row">
+        <div class="cb on"></div>
+        <div class="body">
+          <div class="field empty">Name this line for your client</div>
+          <div class="mine">not named yet · your title: pricing page copy</div>
+          <div class="bar"><i style="width:38%"></i></div>
+        </div>
+        <div class="hours"><b>1.9h</b><span>in progress</span></div>
+      </div>
+
+      <div class="rule"></div>
+      <div class="eyebrow">Before this can be sent</div>
+      <div class="warn">
+        · this project needs a name your client will recognise — it is the biggest text on the
+        page. Set it on the Projects page, under “Name the client sees”
+      </div>
+      <div class="warn">· one line has no client-facing name</div>
+      <div class="note">
+        The result lines are not on this screen at all. They were typed days ago on a card, and the
+        summary is built from them.
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────── AFTER ─────────────── -->
+  <div class="col">
+    <div class="colhead">Proposed</div>
+    <div class="colsub">Two fields become editable. Everything measured stays read-only.</div>
+    <div class="screen">
+
+      <div class="eyebrow">The report</div>
+
+      <div class="fieldlabel">What should your client call this project?<span class="tag edit">edit</span></div>
+      <div class="fieldhelp">The biggest text on the page they receive.</div>
+      <div class="field focus" style="font-size:16px;">Website rebuild<span class="caret"></span></div>
+      <div class="mine">your name for it: nolan — chase invoice</div>
+
+      <div style="font-size:11.5px;color:var(--quiet);margin-top:9px;">
+        17 – 23 August 2026 &nbsp;·&nbsp; 11.4h &nbsp;·&nbsp; 5 days worked
+      </div>
+      <div class="lock">Dates and hours are measured. They are never editable.</div>
+
+      <div class="rule"></div>
+      <div class="eyebrow">The work</div>
+
+      <div class="row" style="margin-top:12px;">
+        <div class="cb on"></div>
+        <div class="body">
+          <div class="field">Onboarding email rewrite</div>
+          <div class="mine">your title: nolan — onboarding seq v2</div>
+
+          <div class="fieldlabel">What came of it?<span class="tag edit">edit</span></div>
+          <div class="fieldhelp">One line, in your words. Your client reads this.</div>
+          <div class="field">Sent for sign-off with the new pricing section included.</div>
+
+          <div class="bar"><i style="width:64%"></i></div>
+        </div>
+        <div class="hours"><b>3.2h</b><span>done</span></div>
+      </div>
+
+      <div class="row">
+        <div class="cb on"></div>
+        <div class="body">
+          <div class="field empty">Name this line for your client</div>
+          <div class="mine">not named yet · your title: pricing page copy</div>
+
+          <div class="fieldlabel">What came of it?<span class="tag edit">edit</span></div>
+          <div class="fieldhelp">One line, in your words. Your client reads this.</div>
+          <div class="field empty">Leave it blank and the line still sends.</div>
+
+          <div class="bar"><i style="width:38%"></i></div>
+        </div>
+        <div class="hours"><b>1.9h</b><span>in progress</span></div>
+      </div>
+
+      <div class="rule"></div>
+      <div class="eyebrow">Before this can be sent</div>
+      <div class="warn">· one line has no client-facing name</div>
+      <div class="note">
+        The project-name warning is gone: it is fixed here now, not on another page.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <h2>What this is</h2>
+  <ul>
+    <li><b>The name the client sees</b> moves onto this screen. Today it sends you to the Projects
+      page to fix the single biggest piece of text your client reads, on the last screen before
+      they read it. Your own private name stays underneath, muted, and still never leaves.</li>
+    <li><b>The result line</b> becomes editable per line, with the question above the box the way
+      every other Ari label works. It was typed days ago on a card and has never been visible here,
+      even though the summary is built from it.</li>
+    <li><b>Empty stays a first-class state.</b> A blank result line is not an error and does not
+      block sending — the second row shows that plainly.</li>
+  </ul>
+
+  <h2>What deliberately does not change</h2>
+  <ul>
+    <li>Hours, dates, days worked, the totals and the bars are measured. They are shown with no
+      affordance at all and carry one quiet line saying so.</li>
+    <li>Status stays derived. There is no way to mark something done from this screen.</li>
+    <li>Excluding a line is unchanged — it removes the line, it never edits a number.</li>
+    <li>Ari still does not draft the result line. You write it (decision 5).</li>
+    <li>No new endpoint: both edits already exist behind the local API and are used elsewhere.</li>
+  </ul>
+</div>
+
+</body>
+</html>

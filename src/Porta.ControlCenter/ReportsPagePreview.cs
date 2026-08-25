@@ -530,9 +530,13 @@ internal static class ReportsPagePreview
         LinesFinished: 2,
         Lines:
         [
+            // Item 4 — one line with a saved result and one without, because the two states are
+            // what the new field has to get right: a sentence that is already written must be
+            // reopenable here, and a blank one must not read as an unmet requirement.
             new(TaskId: 1, Title: "finish my writting part \"all the way in\"",
                 ClientLabel: "Chapter three — first draft", Finished: true,
-                Hours: 6.2, UnattributedHours: 0.4, UnattributedMeasurable: true),
+                Hours: 6.2, UnattributedHours: 0.4, UnattributedMeasurable: true,
+                ResultLine: "Sent to you for sign-off, with the pricing section included."),
             new(TaskId: 2, Title: "continue to improve the system",
                 ClientLabel: "Interview transcripts", Finished: true,
                 Hours: 4.9, UnattributedHours: 0d, UnattributedMeasurable: true),

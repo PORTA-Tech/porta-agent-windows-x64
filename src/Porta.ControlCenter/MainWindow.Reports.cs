@@ -169,17 +169,19 @@ public partial class MainWindow
 
         ReportDraftPanel.Visibility = Visibility.Visible;
 
-        // The header is the largest text a client reads, so it shows the client-facing name and
-        // says plainly when there isn't one yet. It never quietly falls back to the local name.
-        ReportHeaderText.Text = draft.ClientName.Length > 0
-            ? draft.ClientName
-            : draft.ProjectName;
-        ReportHeaderText.Foreground = new SolidColorBrush(TextPrimary);
+        // Item 4 — the header is the largest text a client reads, and it is now edited here rather
+        // than on the Projects page. It still NEVER falls back to the local name: an empty box with
+        // a prompt is honest, where showing the private name in the client-facing slot is the exact
+        // thing that put "nolan - chase invoice" one tap from a client.
+        ReportClientNameBox.Text = draft.ClientName;
+        ReportClientNameBox.Tag = draft.ClientName;
+        ReportClientNamePlaceholder.Visibility =
+            draft.ClientName.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
 
-        ReportRangeText.Text = draft.ClientName.Length > 0
-            ? $"{FriendlyDate(draft.RangeStartLocal)} – {FriendlyDate(draft.RangeEndLocal)}"
-            : $"{FriendlyDate(draft.RangeStartLocal)} – {FriendlyDate(draft.RangeEndLocal)}   ·   " +
-              "this is your own name for the project, not a client-facing one";
+        ReportLocalNameText.Text = $"your name for it: {draft.ProjectName}";
+
+        ReportRangeText.Text =
+            $"{FriendlyDate(draft.RangeStartLocal)} – {FriendlyDate(draft.RangeEndLocal)}";
 
         IReadOnlyList<LocalApiReportLine> included =
             draft.Lines.Where(l => !_excludedLines.Contains(l.TaskId)).ToList();
@@ -397,6 +399,80 @@ public partial class MainWindow
             TextTrimming = TextTrimming.CharacterEllipsis,
             Margin = new Thickness(8, 5, 0, 0)
         });
+
+        // Item 4 — the user's own line about what came of this task, editable HERE. It is written
+        // days earlier on a card, the report's summary is built from it, and until now it was not
+        // on this screen at all: the last chance to read it was the moment it stopped being visible.
+        //
+        // Blank is a first-class state and NOT a blocker — ReportSendReadiness has never required a
+        // result line, and the prompt below says so rather than leaving an empty box looking unmet.
+        labelStack.Children.Add(new TextBlock
+        {
+            Text = "What came of it?",
+            FontSize = 11,
+            Foreground = new SolidColorBrush(TextSecondary),
+            Margin = new Thickness(8, 10, 0, 1)
+        });
+        labelStack.Children.Add(new TextBlock
+        {
+            Text = "One line, in your words. Your client reads this.",
+            FontSize = 10.5,
+            Foreground = new SolidColorBrush(TextQuiet),
+            Margin = new Thickness(8, 0, 0, 3)
+        });
+
+        var resultBox = new TextBox
+        {
+            Text = line.ResultLine,
+            Style = (Style)FindResource("RpInlineEditBox"),
+            Foreground = new SolidColorBrush(excluded ? UnfinishedGrey : TextPrimary),
+            Tag = line.ResultLine,
+            FontSize = 12.5,
+            TextWrapping = TextWrapping.Wrap,
+            ToolTip = "The one line your client reads about this task. Only this sentence changes — never the hours."
+        };
+
+        void TrySaveResult()
+        {
+            string typed = resultBox.Text.Trim();
+            if (string.Equals(typed, (string)(resultBox.Tag ?? string.Empty), StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            resultBox.Tag = typed;
+            _ = SetLineResultAsync(line.TaskId, typed);
+        }
+
+        resultBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                TrySaveResult();
+                e.Handled = true;
+            }
+        };
+        resultBox.LostFocus += (_, _) => TrySaveResult();
+
+        var resultHost = new Grid();
+        resultHost.Children.Add(resultBox);
+
+        var resultPlaceholder = new TextBlock
+        {
+            Text = "Leave it blank and the line still sends.",
+            FontSize = 12.5,
+            FontStyle = FontStyles.Italic,
+            Foreground = new SolidColorBrush(TextQuiet),
+            Margin = new Thickness(8, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
+            Visibility = line.ResultLine.Length == 0 ? Visibility.Visible : Visibility.Collapsed
+        };
+        resultBox.TextChanged += (_, _) =>
+            resultPlaceholder.Visibility = resultBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        resultHost.Children.Add(resultPlaceholder);
+
+        labelStack.Children.Add(resultHost);
 
         // The user's own diagnostic, never the client's: measured time on this task that carried no
         // identifiable application, so it is not in the hours beside it. Shown so a report that
@@ -628,7 +704,9 @@ public partial class MainWindow
 
         if (draft.ClientName.Length == 0)
         {
-            missing.Add("this project needs a name your client will recognise — it is the biggest text on the page. Set it on the Projects page, under “Name the client sees”");
+            // Item 4 — the name is editable at the top of THIS screen now, so the instruction is to
+            // look up, not to go elsewhere.
+            missing.Add("this project needs a name your client will recognise — it is the biggest text on the page. Type it at the top of this screen");
         }
 
         int unnamed = included.Count(l => l.ClientLabel.Length == 0);
@@ -659,6 +737,113 @@ public partial class MainWindow
             ? "The report goes out from your own name and address. It never sends until you tap send."
             : "Sending is ready and waiting on the above. The report goes out from your own name "
               + "and address, and never without you tapping send.";
+    }
+
+    /// <summary>
+    /// Item 4 — hooks the client-name box up once, from the constructor path. Save on Enter and on
+    /// losing focus, exactly like the per-line label box: the two fields on this screen behave the
+    /// same way, or one of them feels broken.
+    /// </summary>
+    private void WireReportClientNameBox()
+    {
+        ReportClientNameBox.TextChanged += (_, _) =>
+            ReportClientNamePlaceholder.Visibility =
+                ReportClientNameBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        void TrySave()
+        {
+            string typed = ReportClientNameBox.Text.Trim();
+            if (string.Equals(typed, (string)(ReportClientNameBox.Tag ?? string.Empty), StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            ReportClientNameBox.Tag = typed;
+            _ = SaveReportClientNameAsync(typed);
+        }
+
+        ReportClientNameBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                TrySave();
+                e.Handled = true;
+            }
+        };
+        ReportClientNameBox.LostFocus += (_, _) => TrySave();
+    }
+
+    /// <summary>
+    /// Saves the project's client-facing name. Only the name: every other field on the request is
+    /// null, and the endpoint applies a field only when present, so naming a project cannot
+    /// accidentally clear its rate or its label style.
+    /// </summary>
+    private async Task SaveReportClientNameAsync(string clientName)
+    {
+        if (_reportDraft is not { } draft)
+        {
+            return;
+        }
+
+        try
+        {
+            LocalApiProjectResponse? updated = await _apiClient
+                .UpdateProjectClientAsync(new LocalApiProjectClientRequest(
+                    SchemaVer: 1,
+                    Id: draft.ProjectId,
+                    ClientName: clientName,
+                    UseClientLabels: null,
+                    RateMinor: null,
+                    RateCurrency: null))
+                .ConfigureAwait(true);
+
+            if (updated?.Success != true)
+            {
+                ReportStatusText.Text = "That name didn't save. The draft still shows what is stored.";
+                return;
+            }
+
+            // Re-read rather than patching in place: the store normalises what it keeps, and this
+            // screen must show what is stored, not what was typed.
+            await BuildReportDraftAsync().ConfigureAwait(true);
+        }
+        catch
+        {
+            ReportStatusText.Text = "That name didn't save. The draft still shows what is stored.";
+        }
+    }
+
+    /// <summary>
+    /// Item 4 — the user's own one-line result, saved from the draft screen. Status, blocked reason
+    /// and expected finish are all sent as null so they are left exactly as they are: this screen
+    /// edits the sentence a client reads, and nothing derived.
+    /// </summary>
+    private async Task SetLineResultAsync(long taskId, string resultLine)
+    {
+        try
+        {
+            LocalApiTaskActResponse? response = await _apiClient
+                .SetTaskReportFieldsAsync(new LocalApiTaskReportFieldsRequest(
+                    SchemaVer: 1,
+                    TaskId: taskId,
+                    Status: null,
+                    ResultLine: resultLine,
+                    BlockedReason: null,
+                    ExpectedFinishDay: null))
+                .ConfigureAwait(true);
+
+            if (response?.Success != true)
+            {
+                ReportStatusText.Text = "That line didn't save. The draft still shows what is stored.";
+                return;
+            }
+
+            await BuildReportDraftAsync().ConfigureAwait(true);
+        }
+        catch
+        {
+            ReportStatusText.Text = "That line didn't save. The draft still shows what is stored.";
+        }
     }
 
     private async Task SetLineLabelAsync(long taskId, string label)

@@ -173,6 +173,8 @@ public partial class MainWindow : Window
         _showOnboardingOverlay = !LoadOnboardingAcknowledged();
         UiVersionText.Text = _uiVersion;
         InitializePauseUntilControls();
+        // Item 4 — the client-name box on the Reports draft screen saves on Enter and on blur.
+        WireReportClientNameBox();
         PopulateOnboardingSurface(
             ProbeServiceStatus(),
             IsTrayRunning(),
