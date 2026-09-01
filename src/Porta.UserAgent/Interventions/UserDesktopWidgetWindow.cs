@@ -162,6 +162,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     private bool _allowClose;
     private int _windowLifecycleState = WindowLifecycleOpen;
     private int _surfaceVisibleForHeartbeat;
+    private int _surfaceHiddenOnPurpose;
     private DateTimeOffset _reexpandNotBeforeUtc = DateTimeOffset.MinValue;
     private UserDesktopWidgetState? _currentState;
     private UserInterventionPrompt? _activePrompt;
@@ -1341,9 +1342,26 @@ internal sealed class UserDesktopWidgetWindow : Window
     internal void StartHidden()
     {
         _hiddenByUser = true;
+        StartedHidden = true;
         new WindowInteropHelper(this).EnsureHandle();
         RefreshSurfaceVisibilityHealth();
     }
+
+    /// <summary>
+    /// True for a window brought up by <see cref="StartHidden"/> and not yet genuinely shown.
+    ///
+    /// <see cref="StartHidden"/> creates the HWND without calling <c>Show()</c>, so WPF never
+    /// raises <c>Loaded</c> and <see cref="System.Windows.FrameworkElement.IsLoaded"/> stays false
+    /// for the window's whole life. The presenter's recovery path used <c>IsLoaded</c> alone to
+    /// tell a healthy window from "a constructed-but-never-loaded leftover whose Show() threw" —
+    /// a test written for a genuinely broken window that also matched every deliberately hidden
+    /// one. The result was that a hidden widget could never be reused: it was destroyed and
+    /// rebuilt on every 2-second maintenance tick, leaking ~3 USER and ~3 GDI objects each time
+    /// until the process hit the 10,000 handle ceiling and the widget stopped working entirely.
+    ///
+    /// This flag is the difference between "hidden on purpose" and "never came up".
+    /// </summary>
+    internal bool StartedHidden { get; private set; }
 
     public void HideWidget()
     {
@@ -1446,6 +1464,19 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     internal bool IsSurfaceVisibleForHeartbeat => Volatile.Read(ref _surfaceVisibleForHeartbeat) == 1 && CanAcceptUiActions;
 
+    /// <summary>
+    /// True when the surface is down because the USER hid it, rather than because it is broken.
+    ///
+    /// The presenter's health test used surface visibility alone, so a deliberately hidden widget
+    /// was indistinguishable from a dead one and the presenter kept "recovering" it — starting a
+    /// fresh widget thread every few seconds, which orphaned the previous window on the old
+    /// dispatcher and rebuilt it. That is the other half of the hidden rebuild loop.
+    ///
+    /// Same volatile-int treatment as <see cref="IsSurfaceVisibleForHeartbeat"/>, computed in the
+    /// same place, so the two can never disagree about the same window.
+    /// </summary>
+    internal bool IsSurfaceHiddenOnPurpose => Volatile.Read(ref _surfaceHiddenOnPurpose) == 1 && CanAcceptUiActions;
+
     internal void EnsureVisibleForRecovery()
     {
         if (!CanAcceptUiActions)
@@ -1461,6 +1492,9 @@ internal sealed class UserDesktopWidgetWindow : Window
         if (!IsVisible)
         {
             Show();
+            // It has genuinely come up now, so it goes back to being judged by IsLoaded. Leaving
+            // the flag set would let a later real failure hide behind "hidden on purpose".
+            StartedHidden = false;
         }
 
         if (WindowState == WindowState.Minimized)
@@ -4758,6 +4792,16 @@ internal sealed class UserDesktopWidgetWindow : Window
             && _hwndSource is not null
             && !_hwndSource.IsDisposed;
         Interlocked.Exchange(ref _surfaceVisibleForHeartbeat, visible ? 1 : 0);
+
+        // Hidden ON PURPOSE is a healthy state, not a broken one: the HWND is alive and the window
+        // is ready to be shown the moment the hide expires. Everything the visible test asks for
+        // except being on screen.
+        bool hiddenOnPurpose =
+            CanAcceptUiActions
+            && _hiddenByUser
+            && _hwndSource is not null
+            && !_hwndSource.IsDisposed;
+        Interlocked.Exchange(ref _surfaceHiddenOnPurpose, hiddenOnPurpose ? 1 : 0);
     }
 
     internal void NudgeTopmost()

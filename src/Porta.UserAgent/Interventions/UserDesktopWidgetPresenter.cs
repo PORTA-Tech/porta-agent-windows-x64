@@ -1,4 +1,4 @@
-namespace Porta.UserAgent.Interventions;
+﻿namespace Porta.UserAgent.Interventions;
 
 using Porta.Agent.Common;
 using Porta.Agent.LocalApi;
@@ -624,7 +624,10 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             currentWindow = null;
         }
 
-        if (currentWindow is { IsLoaded: true })
+        // StartedHidden windows have no Loaded event by construction — StartHidden() creates the
+        // HWND without Show(). Judging them by IsLoaded alone sent every hidden widget down the
+        // destroy-and-rebuild path below, twice a second, forever.
+        if (currentWindow is { IsLoaded: true } or { StartedHidden: true })
         {
             if (currentWindow.IsClosingOrClosed)
             {
@@ -681,7 +684,11 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
         // §1b — a constructed-but-never-loaded leftover (its Show() threw last time) still has a
         // running ctor pulse timer; close it before creating its replacement.
-        if (currentWindow is not null && !currentWindow.IsLoaded)
+        //
+        // StartedHidden is excluded: that window never called Show() ON PURPOSE, so it is not a
+        // leftover and closing it here is what produced the rebuild loop. A hidden window that
+        // later fails to come up is still closed — by the reuse branch's own catch, as reuse_failed.
+        if (currentWindow is not null && !currentWindow.IsLoaded && !currentWindow.StartedHidden)
         {
             lock (_widgetLifecycleGate)
             {
@@ -966,8 +973,19 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             return false;
         }
 
+        // A widget the user has hidden is OPERATIONAL, not broken. Requiring the surface to be
+        // visible meant a hidden widget could never satisfy this, so every dispatch fell through
+        // to recovery and started a fresh widget thread — whose new dispatcher then orphaned the
+        // existing window as a mismatch and rebuilt it, ~20 times a minute, leaking a window's
+        // worth of USER and GDI objects each time.
+        //
+        // Safe because the session heartbeat never consults this while hidden:
+        // IsWidgetHealthyForSessionHeartbeat short-circuits to true on _visibilityStore.IsHidden()
+        // BEFORE reaching IsWidgetHealthyForHeartbeat, and CurrentSessionUserAgentRecoveryEvaluator
+        // never reads DesktopWidgetReady at all. What the watchdog restarts on is unchanged.
         return _widgetThread is { IsAlive: true }
-            && _widgetWindow is { CanAcceptUiActions: true, IsSurfaceVisibleForHeartbeat: true } window
+            && _widgetWindow is { CanAcceptUiActions: true } window
+            && (window.IsSurfaceVisibleForHeartbeat || window.IsSurfaceHiddenOnPurpose)
             && ReferenceEquals(window.Dispatcher, dispatcher)
             && GetWidgetHealthState() == WidgetHealthReady;
     }

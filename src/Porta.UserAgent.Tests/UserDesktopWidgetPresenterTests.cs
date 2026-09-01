@@ -465,6 +465,417 @@ public sealed class UserDesktopWidgetPresenterTests
         field.SetValue(target, value);
     }
 
+    // ── The hidden-widget rebuild loop ─────────────────────────────────────────────────────
+    //
+    // Two independent faults made a hidden widget rebuild itself ~20 times a minute, leaking a
+    // window's worth of USER and GDI objects each time until the process hit the 10,000 handle
+    // ceiling and the widget stopped working at all.
+    //
+    //  1. IsWidgetOperationalLocked required the SURFACE TO BE VISIBLE, so a deliberately hidden
+    //     widget was never "operational". Every dispatch fell through to EnsureWidgetThreadStarted,
+    //     which started a FRESH widget thread; the new thread's dispatcher then orphaned the
+    //     existing window as a mismatch and rebuilt it.
+    //  2. StartHidden() creates the HWND without calling Show(), so WPF never raises Loaded. The
+    //     recovery path used IsLoaded alone to spot a leftover whose Show() had thrown, which also
+    //     matched every deliberately hidden window and destroyed it.
+    //
+    // THE FIRST OF THESE IS WHAT PRODUCTION HITS, and the first version of these tests missed it
+    // entirely: they set _widgetDispatcher by hand and called EnsureWidgetWindowOnCurrentDispatcher
+    // directly, which is the stable-dispatcher path a hidden widget never reaches. They passed
+    // against a build that still leaked 63 handles a minute on a real machine.
+    //
+    // So the headline tests below go through TryUpdateWidgetState — the same entry point the
+    // capture loop uses — and let the presenter own its widget thread, exactly as in production.
+
+    /// <summary>
+    /// The production path. Widget hidden, many state pushes: ONE widget thread and ONE window.
+    /// A new thread per push is the fault that leaked, and it is what this asserts against.
+    /// </summary>
+    [Fact]
+    public void HiddenWidget_ManyStatePushes_ReuseOneThreadAndOneWindow()
+    {
+        RunHiddenProductionScenario(TimeSpan.FromHours(1), pushes: 20, (threads, windows) =>
+        {
+            Assert.Single(threads.Distinct());
+            Assert.Single(windows.Distinct());
+            Assert.True(
+                OnWindow(windows[0], static w => w.StartedHidden),
+                "a widget brought up hidden must be marked as such");
+            Assert.False(
+                OnWindow(windows[0], static w => w.IsLoaded),
+                "and it is still not Loaded — that is what broke the reuse test");
+        });
+    }
+
+    /// <summary>A hide that outlives a restart is the same shape in the store's other mode.</summary>
+    [Fact]
+    public void AHideThatOutlivesARestart_AlsoReusesOneThreadAndOneWindow()
+    {
+        RunHiddenProductionScenario(TimeSpan.FromHours(20), pushes: 20, (threads, windows) =>
+        {
+            Assert.Single(threads.Distinct());
+            Assert.Single(windows.Distinct());
+        });
+    }
+
+    /// <summary>
+    /// The same run measured the way the field evidence was: handles flat, not climbing. Baseline
+    /// is taken after the first push so the one legitimate window is not counted as growth.
+    /// </summary>
+    [Fact]
+    public void HiddenWidget_DoesNotLeakHandlesAcrossStatePushes()
+    {
+        string dir = NewTempDirectory();
+        string hidePath = Path.Combine(dir, "widget-hidden.flag");
+        new UserDesktopWidgetVisibilityStore(hidePath).HideFor(TimeSpan.FromHours(1), DateTimeOffset.Now);
+
+        UserDesktopWidgetPresenter? presenter = null;
+        try
+        {
+            presenter = BuildPresenter(dir, hidePath);
+
+            presenter.TryUpdateWidgetState(BuildSampleWidgetState(), out _);
+            (uint baselineUser, uint baselineGdi) = GuiResourceMeter.Read();
+
+            const int Pushes = 20;
+            for (int i = 0; i < Pushes; i++)
+            {
+                presenter.TryUpdateWidgetState(BuildSampleWidgetState(), out _);
+            }
+
+            (uint finalUser, uint finalGdi) = GuiResourceMeter.Read();
+            long userGrowth = (long)finalUser - baselineUser;
+            long gdiGrowth = (long)finalGdi - baselineGdi;
+
+            // Measured on a real machine before the fix: ~3 USER and ~3 GDI per rebuild. Across 20
+            // pushes that is ~60 of each. The allowance absorbs unrelated churn on a shared runner
+            // while leaving no room for a rebuild loop to hide.
+            Assert.True(
+                userGrowth <= 12,
+                $"USER objects grew by {userGrowth} across {Pushes} pushes — the widget is being rebuilt.");
+            Assert.True(
+                gdiGrowth <= 12,
+                $"GDI objects grew by {gdiGrowth} across {Pushes} pushes — the widget is being rebuilt.");
+        }
+        finally
+        {
+            DisposeQuietly(presenter);
+            TryDeleteDirectory(dir);
+        }
+    }
+
+    /// <summary>
+    /// A hidden widget must report itself operational, which is the condition that stops the
+    /// dispatch path starting a fresh thread. Asserted directly so a regression names itself.
+    /// </summary>
+    [Fact]
+    public void AHiddenWidget_CountsAsOperational()
+    {
+        string dir = NewTempDirectory();
+        string hidePath = Path.Combine(dir, "widget-hidden.flag");
+        new UserDesktopWidgetVisibilityStore(hidePath).HideFor(TimeSpan.FromHours(1), DateTimeOffset.Now);
+
+        UserDesktopWidgetPresenter? presenter = null;
+        try
+        {
+            presenter = BuildPresenter(dir, hidePath);
+            presenter.TryUpdateWidgetState(BuildSampleWidgetState(), out _);
+
+            UserDesktopWidgetWindow window =
+                GetPrivateField<UserDesktopWidgetWindow>(presenter, "_widgetWindow");
+            Assert.False(
+                OnWindow(window, static w => w.IsSurfaceVisibleForHeartbeat),
+                "it is hidden, so it is not on screen");
+            Assert.True(
+                OnWindow(window, static w => w.IsSurfaceHiddenOnPurpose),
+                "but it is hidden on purpose, not broken");
+
+            // And the heartbeat is unaffected: it short-circuits to healthy while hidden, which is
+            // why widening the operational gate cannot change what the watchdog restarts on.
+            Assert.True(presenter.IsWidgetHealthyForSessionHeartbeat);
+        }
+        finally
+        {
+            DisposeQuietly(presenter);
+            TryDeleteDirectory(dir);
+        }
+    }
+
+    /// <summary>
+    /// The recovery path, which is where the StartedHidden flag earns its keep. Recovery still runs
+    /// on a genuine ready-timeout, and when it does it must reuse a hidden window rather than
+    /// destroy it as a never-loaded leftover.
+    /// </summary>
+    [Fact]
+    public void RecoveryOnTheExistingDispatcher_ReusesAHiddenWindow_RatherThanRebuildingIt()
+    {
+        string dir = NewTempDirectory();
+        string hidePath = Path.Combine(dir, "widget-hidden.flag");
+        new UserDesktopWidgetVisibilityStore(hidePath).HideFor(TimeSpan.FromHours(1), DateTimeOffset.Now);
+
+        RunOnStaThread(() =>
+        {
+            UserDesktopWidgetPresenter? presenter = null;
+            var seen = new List<UserDesktopWidgetWindow>();
+            try
+            {
+                presenter = BuildPresenter(dir, hidePath);
+                SetPrivateField(presenter, "_widgetDispatcher", Dispatcher.CurrentDispatcher);
+
+                for (int i = 0; i < 10; i++)
+                {
+                    SetPrivateField(presenter, "_widgetReady", CreateReadySource());
+                    InvokePrivateMethod(presenter, "EnsureWidgetWindowOnCurrentDispatcher");
+                    Dispatcher.CurrentDispatcher.Invoke(static () => { }, DispatcherPriority.Background);
+                    seen.Add(GetPrivateField<UserDesktopWidgetWindow>(presenter, "_widgetWindow"));
+                }
+
+                Assert.Single(seen.Distinct());
+                Assert.True(seen[0].StartedHidden);
+            }
+            finally
+            {
+                DisposeQuietly(presenter);
+                TryDeleteDirectory(dir);
+            }
+        });
+    }
+
+    /// <summary>
+    /// A hide that expires while the agent is running: the widget comes back on the SAME window,
+    /// and stops being special-cased the moment it genuinely comes up.
+    /// </summary>
+    [Fact]
+    public void WhenTheHideExpires_TheWidgetComesBackWithoutARebuild()
+    {
+        string dir = NewTempDirectory();
+        string hidePath = Path.Combine(dir, "widget-hidden.flag");
+        var store = new UserDesktopWidgetVisibilityStore(hidePath);
+        store.HideFor(TimeSpan.FromHours(1), DateTimeOffset.Now);
+
+        UserDesktopWidgetPresenter? presenter = null;
+        try
+        {
+            presenter = BuildPresenter(dir, hidePath);
+            for (int i = 0; i < 5; i++)
+            {
+                presenter.TryUpdateWidgetState(BuildSampleWidgetState(), out _);
+            }
+
+            UserDesktopWidgetWindow hiddenWindow =
+                GetPrivateField<UserDesktopWidgetWindow>(presenter, "_widgetWindow");
+            Assert.True(OnWindow(hiddenWindow, static w => w.StartedHidden));
+
+            // The hide expires; the maintenance tick notices the transition and brings it back.
+            store.Show();
+            presenter.ReevaluateVisibility();
+            for (int i = 0; i < 5; i++)
+            {
+                presenter.TryUpdateWidgetState(BuildSampleWidgetState(), out _);
+            }
+
+            Assert.Same(
+                hiddenWindow,
+                GetPrivateField<UserDesktopWidgetWindow>(presenter, "_widgetWindow"));
+            Assert.False(
+                OnWindow(hiddenWindow, static w => w.StartedHidden),
+                "once genuinely shown it goes back to being judged by IsLoaded");
+        }
+        finally
+        {
+            DisposeQuietly(presenter);
+            TryDeleteDirectory(dir);
+        }
+    }
+
+    /// <summary>
+    /// Hiding a widget that is already up — the pre-existing path — still reuses one window, and
+    /// that window was never StartedHidden because it came up through Show().
+    /// </summary>
+    [Fact]
+    public void HidingAWidgetThatIsAlreadyShowing_StillReusesOneWindow()
+    {
+        string dir = NewTempDirectory();
+        string hidePath = Path.Combine(dir, "widget-hidden.flag");
+        var store = new UserDesktopWidgetVisibilityStore(hidePath);
+
+        UserDesktopWidgetPresenter? presenter = null;
+        try
+        {
+            presenter = BuildPresenter(dir, hidePath);
+            presenter.TryUpdateWidgetState(BuildSampleWidgetState(), out _);
+
+            UserDesktopWidgetWindow shown =
+                GetPrivateField<UserDesktopWidgetWindow>(presenter, "_widgetWindow");
+            Assert.False(
+                OnWindow(shown, static w => w.StartedHidden),
+                "it came up through Show(), not StartHidden()");
+
+            store.HideFor(TimeSpan.FromHours(1), DateTimeOffset.Now);
+            presenter.ReevaluateVisibility();
+            for (int i = 0; i < 10; i++)
+            {
+                presenter.TryUpdateWidgetState(BuildSampleWidgetState(), out _);
+            }
+
+            Assert.Same(
+                shown,
+                GetPrivateField<UserDesktopWidgetWindow>(presenter, "_widgetWindow"));
+        }
+        finally
+        {
+            DisposeQuietly(presenter);
+            TryDeleteDirectory(dir);
+        }
+    }
+
+    /// <summary>
+    /// Neither change may mask a real failure: a window that never went through StartHidden is
+    /// still treated as a broken leftover and replaced, exactly as before.
+    /// </summary>
+    [Fact]
+    public void AWindowThatNeverStartedHidden_IsStillTreatedAsABrokenLeftover()
+    {
+        string dir = NewTempDirectory();
+        RunOnStaThread(() =>
+        {
+            UserDesktopWidgetPresenter? presenter = null;
+            UserDesktopWidgetWindow? orphan = null;
+            try
+            {
+                // Not hidden: the store has no flag file at all.
+                presenter = BuildPresenter(dir, Path.Combine(dir, "no-hide.flag"));
+                SetPrivateField(presenter, "_widgetDispatcher", Dispatcher.CurrentDispatcher);
+
+                // Constructed, never shown, never marked hidden — the exact shape the never_loaded
+                // close was written for.
+                orphan = new UserDesktopWidgetWindow(
+                    _ => { }, _ => { },
+                    new UserDesktopWidgetPlacementStore(Path.Combine(dir, "orphan-placement.json")));
+                Assert.False(orphan.IsLoaded);
+                Assert.False(orphan.StartedHidden);
+
+                SetPrivateField(presenter, "_widgetWindow", orphan);
+                SetPrivateField(presenter, "_widgetReady", CreateReadySource());
+                InvokePrivateMethod(presenter, "EnsureWidgetWindowOnCurrentDispatcher");
+
+                UserDesktopWidgetWindow current =
+                    GetPrivateField<UserDesktopWidgetWindow>(presenter, "_widgetWindow");
+                Assert.NotSame(orphan, current);
+            }
+            finally
+            {
+                DisposeQuietly(presenter);
+                CloseWindow(orphan);
+                TryDeleteDirectory(dir);
+            }
+        });
+    }
+
+    // ── harness for the hidden-widget scenarios ────────────────────────────────────────────
+
+    /// <summary>
+    /// Drives the presenter the way the capture loop does: repeated state pushes, with the
+    /// presenter owning its own widget thread. No dispatcher is planted by hand — planting one is
+    /// what made the first version of these tests pass against a build that still leaked.
+    /// </summary>
+    private static void RunHiddenProductionScenario(
+        TimeSpan hideFor,
+        int pushes,
+        Action<List<Thread>, List<UserDesktopWidgetWindow>> assert)
+    {
+        string dir = NewTempDirectory();
+        string hidePath = Path.Combine(dir, "widget-hidden.flag");
+        new UserDesktopWidgetVisibilityStore(hidePath).HideFor(hideFor, DateTimeOffset.Now);
+
+        UserDesktopWidgetPresenter? presenter = null;
+        try
+        {
+            presenter = BuildPresenter(dir, hidePath);
+
+            var threads = new List<Thread>();
+            var windows = new List<UserDesktopWidgetWindow>();
+            for (int i = 0; i < pushes; i++)
+            {
+                presenter.TryUpdateWidgetState(BuildSampleWidgetState(), out _);
+                threads.Add(GetPrivateField<Thread>(presenter, "_widgetThread"));
+                windows.Add(GetPrivateField<UserDesktopWidgetWindow>(presenter, "_widgetWindow"));
+            }
+
+            Assert.Equal(pushes, windows.Count);
+            assert(threads, windows);
+        }
+        finally
+        {
+            DisposeQuietly(presenter);
+            TryDeleteDirectory(dir);
+        }
+    }
+
+    /// <summary>
+    /// Read a window property on the thread that OWNS the window. The presenter runs its widget on
+    /// its own STA thread, so touching a DependencyProperty (IsLoaded) from the test thread throws.
+    /// </summary>
+    private static T OnWindow<T>(UserDesktopWidgetWindow window, Func<UserDesktopWidgetWindow, T> read)
+        => window.Dispatcher.Invoke(() => read(window));
+
+    private static TaskCompletionSource<bool> CreateReadySource()
+        => new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private static UserDesktopWidgetState BuildSampleWidgetState()
+        => new(
+            Mode: UserDesktopWidgetMode.Monitoring,
+            Title: "Ari",
+            StatusText: "Monitoring",
+            MessageSeverity: UserDesktopWidgetMessageSeverity.Neutral,
+            FooterText: "Ready",
+            PrimaryMetric: new UserDesktopWidgetMetric("Work today", "0m"),
+            SecondaryMetric: new UserDesktopWidgetMetric("Last focus session", "0m"),
+            TertiaryMetric: new UserDesktopWidgetMetric("Pressure", "0%"),
+            CanPause: true,
+            CanResume: false);
+
+    private static UserDesktopWidgetPresenter BuildPresenter(string dir, string hidePath)
+        => new(
+            new UserDesktopWidgetRollout(WidgetEnabled: true, ForceToastFallback: false),
+            new UserDesktopWidgetPlacementStore(Path.Combine(dir, "widget-placement.json")),
+            new UserDesktopWidgetVisibilityStore(hidePath),
+            new FakeBreakOverlayPresenter(),
+            startWidgetThread: false);
+
+    private static string NewTempDirectory()
+    {
+        string dir = Path.Combine(
+            Path.GetTempPath(), "porta-widget-hidden-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+
+    private static void DisposeQuietly(UserDesktopWidgetPresenter? presenter)
+    {
+        try
+        {
+            presenter?.Dispose();
+        }
+        catch
+        {
+        }
+    }
+
+    private static void TryDeleteDirectory(string dir)
+    {
+        try
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+        catch
+        {
+        }
+    }
+
     private static T GetPrivateField<T>(object target, string fieldName)
     {
         FieldInfo field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)
