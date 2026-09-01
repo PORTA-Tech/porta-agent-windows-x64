@@ -13,6 +13,10 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignal
     public int InputSignalsIngestCount => _ingestedInputSignals.Count;
 
     public AgentBrainSnapshot? LatestSnapshot { get; set; }
+    // Task attribution — the day's held seconds, so the LocalApi contract test can assert the
+    // number actually reaches the wire instead of being a field nobody serialises.
+    public double UnassignedSecondsForDay { get; set; }
+    public int DriftHoldCountForDay { get; set; }
     public AgentLatestStateDetails? LatestStateDetails { get; set; }
     public bool ThrowOnReadLatestStateDetails { get; set; }
     public bool ThrowOnReadNotificationSuppressionStatus { get; set; }
@@ -213,6 +217,8 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignal
         double assumedActiveSeconds, int assumedFinishedCount, int assumedOpenCount, DateTimeOffset nowUtc) => null;
     public IReadOnlyList<AgentCheckInCorrection> ReadCheckInCorrections(string localDate)
         => Array.Empty<AgentCheckInCorrection>();
+    public double ReadUnassignedSecondsForDay(string localDate) => UnassignedSecondsForDay;
+    public int ReadDriftHoldCountForDay(string localDate) => DriftHoldCountForDay;
     public AgentBrainSnapshot? ReadLatestSnapshot() => LatestSnapshot;
     public AgentLatestStateDetails? ReadLatestStateDetails()
     {

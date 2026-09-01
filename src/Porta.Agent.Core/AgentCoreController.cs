@@ -2101,6 +2101,14 @@ public sealed class AgentCoreController : IAgentCoreController
     public IReadOnlyList<AgentCheckInCorrection> GetCheckInCorrectionsToday()
         => _stateStore.ReadCheckInCorrections(GoalDay(DateTimeOffset.Now));
 
+    // The same 05:00-boundary goal day the held rows were keyed by at hold time, so "today's
+    // unassigned" and "today's task hours" can never be answering two different questions.
+    public double GetUnassignedSecondsToday()
+        => _stateStore.ReadUnassignedSecondsForDay(GoalDay(DateTimeOffset.Now));
+
+    public int GetDriftHoldCountToday()
+        => _stateStore.ReadDriftHoldCountForDay(GoalDay(DateTimeOffset.Now));
+
     public void AcknowledgeIntervention(AgentInterventionAck ack)
     {
         if (ack is null)

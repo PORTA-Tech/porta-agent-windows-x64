@@ -178,7 +178,12 @@ internal sealed class DailyStatsReporter : BackgroundService
                 // an agent-local table, so this 2-hourly upload is the ONLY way the server-cron
                 // fallback digest (built from daily_stats) can lead with the goal.
                 Goal: todayGoal?.GoalText,
-                MiddayAnswer: todayGoal?.MiddayAnswer);
+                MiddayAnswer: todayGoal?.MiddayAnswer,
+                // Task attribution — how much the drift gate held today and how many times it
+                // fired. Read off the same 05:00 goal day the held rows were keyed by, so this
+                // and the user's own Today line can never be answering different questions.
+                UnassignedSecondsToday: _controller.GetUnassignedSecondsToday(),
+                DriftHoldCountToday: _controller.GetDriftHoldCountToday());
 
             bool sent = await _client.PostDailyStatsAsync(payload, token).ConfigureAwait(false);
             if (!sent)

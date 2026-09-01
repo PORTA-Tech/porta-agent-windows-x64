@@ -162,6 +162,8 @@ public sealed class NarrativeGatewayTests
             => throw new NotSupportedException();
         public IReadOnlyList<Porta.Agent.Core.AgentCheckInCorrection> GetCheckInCorrectionsToday()
             => Array.Empty<Porta.Agent.Core.AgentCheckInCorrection>();
+        public double GetUnassignedSecondsToday() => throw new NotSupportedException();
+        public int GetDriftHoldCountToday() => throw new NotSupportedException();
         public string? GetCarriedOverPlan() => throw new NotSupportedException();
         public void SetLocalApiAuthState(bool ready, string? error) => throw new NotSupportedException();
     }

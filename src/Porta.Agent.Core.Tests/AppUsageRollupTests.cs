@@ -1,4 +1,5 @@
 ﻿using Microsoft.Data.Sqlite;
+using Porta.Agent.Common.Analysis;
 using Porta.Agent.Core.Outputs;
 
 namespace Porta.Agent.Core.Tests;
@@ -203,6 +204,54 @@ public sealed class AppUsageRollupTests
         });
     }
 
+    /// <summary>
+    /// The two tables task attribution adds are capture data the user produced: what they worked in
+    /// (task_app_affinity) and measured working time with its application and timestamps
+    /// (pending_task_seconds). "Delete my local data" that leaves either behind is a false report —
+    /// the exact defect primitive_buckets already cost once.
+    ///
+    /// It also matters mechanically: the reset clears sqlite_sequence, so task ids are recycled and
+    /// a surviving footprint would re-attach to whatever task is created next.
+    /// </summary>
+    [Fact]
+    public void DeleteLocalData_TakesTheFootprintAndTheHeldSecondsWithIt()
+    {
+        RunWithStore((store, dbPath) =>
+        {
+            AgentTask task = store.CreateTask("landing page copy", 3600, Now)!;
+            store.ActOnTask(task.Id, "start", Now);
+
+            using (var conn = new SqliteConnection($"Data Source={dbPath}"))
+            {
+                conn.Open();
+                using SqliteTransaction tx = conn.BeginTransaction();
+                SqliteBrainStateStore.HoldBucketForTask(
+                    conn, tx, task.Id, 5d, TaskCredit.Hold, AppA,
+                    AttentionSegmentKinds.Focus, Now.ToString("O"));
+                store.LearnAffinityForBucket(
+                    conn, tx, task.Id, TaskLearning.Member, AppA, 5d, Now.ToString("O"));
+                tx.Commit();
+            }
+
+            Assert.True(CountRows(dbPath, "task_app_affinity") > 0);
+            Assert.True(CountRows(dbPath, "pending_task_seconds") > 0);
+
+            store.DeleteLocalData();
+
+            Assert.Equal(0, CountRows(dbPath, "task_app_affinity"));
+            Assert.Equal(0, CountRows(dbPath, "pending_task_seconds"));
+        });
+    }
+
+    private static int CountRows(string dbPath, string table)
+    {
+        using var conn = new SqliteConnection($"Data Source={dbPath}");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"SELECT COUNT(*) FROM {table};";
+        return Convert.ToInt32(cmd.ExecuteScalar());
+    }
+
     [Fact]
     public void DeleteLocalData_TakesTheRollupWithIt()
     {
@@ -215,6 +264,63 @@ public sealed class AppUsageRollupTests
 
             Assert.Empty(store.ReadAppUsage(Now.AddHours(-1), Now.AddHours(1), TimeSpan.Zero));
         });
+    }
+
+    /// <summary>
+    /// Task attribution (2026-09-01) — bug 2, the one that breaks the report silently.
+    ///
+    /// On Hold the row is still written, because the application dimension is real and this table
+    /// is the only record of it that survives the prune. What is dropped is the TASK LINK. Leaving
+    /// the id in place would have ReadReportDraft — which reads per-task hours as
+    /// SUM(active_seconds) WHERE task_id = t.id — report the exact hours this change exists to
+    /// remove, while the Tasks page showed the corrected number.
+    /// </summary>
+    [Fact]
+    public void AHeldBucket_IsRecordedAgainstTaskZero_NeverAgainstTheTaskItWasHeldFrom()
+    {
+        RunWithStore((store, dbPath) =>
+        {
+            AgentTask task = store.CreateTask("landing page copy", 3600, Now)!;
+            store.ActOnTask(task.Id, "start", Now);
+
+            AccumulateWithCredit(dbPath, task.Id, seconds: 5, credit: TaskCredit.Hold, app: AppA, at: Now);
+
+            AgentAppUsageHour row = Single(store);
+            Assert.Equal(0L, row.TaskId);
+
+            // ...and it is WORKING time, not off-task. Held means "this was work, but not this
+            // task's work"; filing it as a distraction would relabel a genuine afternoon of coding.
+            Assert.Equal(5d, row.ActiveSeconds, precision: 6);
+            Assert.Equal(0d, row.OfftaskSeconds, precision: 6);
+        });
+    }
+
+    /// <summary>The contrast case: a credited bucket keeps its task, exactly as before.</summary>
+    [Fact]
+    public void ACreditedBucket_KeepsItsTask()
+    {
+        RunWithStore((store, dbPath) =>
+        {
+            AgentTask task = store.CreateTask("landing page copy", 3600, Now)!;
+            store.ActOnTask(task.Id, "start", Now);
+
+            AccumulateWithCredit(dbPath, task.Id, seconds: 5, credit: TaskCredit.Credit, app: AppA, at: Now);
+
+            AgentAppUsageHour row = Single(store);
+            Assert.Equal(task.Id, row.TaskId);
+            Assert.Equal(5d, row.ActiveSeconds, precision: 6);
+        });
+    }
+
+    private static void AccumulateWithCredit(
+        string dbPath, long taskId, double seconds, TaskCredit credit, string app, DateTimeOffset at)
+    {
+        using var conn = new SqliteConnection($"Data Source={dbPath}");
+        conn.Open();
+        using SqliteTransaction tx = conn.BeginTransaction();
+        SqliteBrainStateStore.AccumulateAppUsageRollup(
+            conn, tx, taskId, seconds, credit, app, at.ToString("O"));
+        tx.Commit();
     }
 
     private static AgentAppUsageHour Single(SqliteBrainStateStore store)

@@ -32,6 +32,13 @@ public partial class MainWindow
         // page shot came out blank: the panel being photographed was never made visible.
         switch (settingsSection)
         {
+            case "Today":
+                // Task attribution (2026-09-01) — the unassigned line only APPEARS when Ari has
+                // held time, which a healthy machine may not have for days. A line nobody has
+                // seen rendered is a line nobody has checked, so it gets a preview state like
+                // every other surface that only shows up in one condition.
+                ShowSection(UiSection.Overview);
+                break;
             case "Projects":
                 ShowSection(UiSection.Projects);
                 break;
@@ -138,8 +145,28 @@ public partial class MainWindow
         {
             "Projects" => ProjectsPageHost,
             "Tasks" => TasksPageHost,
+            "Today" => OverviewPanel,
             _ => ReportsPanel
         };
+
+    /// <summary>
+    /// Put the Today page into the state it reaches when Ari has measured work it could not place
+    /// on a task. Fills the three cards with plausible numbers too, because the line has to be
+    /// read NEXT TO them — a number that looks fine alone can still read as a contradiction
+    /// beside "5h 06m worked".
+    /// </summary>
+    internal void PreviewFillTodayUnassigned(double unassignedSeconds)
+    {
+        _todayUnassignedSeconds = unassignedSeconds;
+        NowOverloadValueText.Text = LocalMetricDurationFormatter.FormatMetricDuration(5d * 3600d + 6d * 60d);
+        NowOverloadActiveText.Text = "Since 1:57 AM";
+        NowFocusStreakValueText.Text = "100%";
+        NowCalibrationStatusText.Text = "49%";
+        NowCalibrationQualityText.Text = "Today peak · 70%";
+        TodaySummaryText.Text = "You've been working 5h 6m. Pressure is steady — keep it going.";
+        PopulateTodayUnassignedLine(TodayTrackingState.StillTracking);
+        UpdateLayout();
+    }
 
     /// <summary>
     /// Open the "from" date picker's calendar and put it in a given mode, so the popup can be

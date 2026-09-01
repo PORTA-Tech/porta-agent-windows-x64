@@ -768,3 +768,23 @@ public sealed record AgentCheckInCorrection(
     public static bool IsKnownCorrection(string? value)
         => value is NotDoneYet or WasntWorking;
 }
+
+// Task attribution (2026-09-01) — one bucket of real work that did not belong to the task that was
+// running. Held, not credited and not discarded.
+//
+// Every field is carried rather than recomputed, and that is the whole design. LocalDate is the
+// 05:00-boundary goal day resolved from the BUCKET at hold time, so a release replays onto the day
+// the work happened rather than the day it was resolved. BucketStartUtc is the same for the hour
+// grain the app rollup uses. TaskId is explicit because the auto-close will have returned the task
+// to pending long before anything resolves this row, so "whichever task is active" is not an answer.
+//
+// State is held | released | unassigned. Held and unassigned are both UNASSIGNED time for reading
+// purposes; released has landed on a task and is counted there.
+public sealed record AgentHeldSeconds(
+    long TaskId,
+    string BucketStartUtc,
+    string LocalDate,
+    double Seconds,
+    string AppHash,
+    string Kind,
+    string State);

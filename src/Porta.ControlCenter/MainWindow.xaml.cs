@@ -58,6 +58,11 @@ public partial class MainWindow : Window
     private const double HistoryHeatmapCanvasPadding = 12d;
 
     private readonly LocalApiClient _apiClient = new();
+
+    // Task attribution — today's real work that could not be placed on a task, in seconds. Kept
+    // across refreshes so a momentarily slow call does not blank the line and make held time
+    // look as though it had been silently resolved.
+    private double _todayUnassignedSeconds;
     private readonly DispatcherTimer _refreshTimer;
     private readonly string _uiVersion = typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? NotAvailableText;
     private LocalApiStatusResponse? _latestStatus;
@@ -588,6 +593,13 @@ public partial class MainWindow : Window
             _fourHourTimeline = PreferFreshTimeline(
                 _fourHourTimeline,
                 await _apiClient.GetTimelineAsync(DateTimeOffset.UtcNow.AddHours(-4), DateTimeOffset.UtcNow, 15).ConfigureAwait(true));
+            LocalApiTasksTodayResponse? tasksToday =
+                await _apiClient.GetTasksTodayAsync().ConfigureAwait(true);
+            if (tasksToday != null)
+            {
+                _todayUnassignedSeconds = tasksToday.UnassignedSeconds;
+            }
+
             var freshRetention = await _apiClient.GetDataRetentionAsync().ConfigureAwait(true);
             // Keep any previously loaded retention so history doesn't go blank if the
             // API call is temporarily slow or returns null (e.g. service warming up).
@@ -1805,8 +1817,32 @@ public partial class MainWindow : Window
         PopulateTodaySupportingStatusLine(todayState, currentStatusText, readableExplanation);
         PopulateTodayRecoveryBanner(todayState, readableExplanation, visualState);
         PopulateCurrentSessionCard(todayState, liveSession);
+        PopulateTodayUnassignedLine(todayState);
         UpdateCardProgressBars(todayMetrics, snapshot);
         RefreshSessionTimelineBar();
+    }
+
+    /// <summary>
+    /// Task attribution — the day's real work that Ari could not place on a task.
+    ///
+    /// Hidden when there is none, which is most days. Hidden too when tracking is paused or the
+    /// service is unreachable: the number would be stale and a stale figure here reads as a claim
+    /// about right now.
+    /// </summary>
+    private void PopulateTodayUnassignedLine(TodayTrackingState todayState)
+    {
+        string? line = todayState is TodayTrackingState.Paused or TodayTrackingState.Unavailable
+            ? null
+            : TodayPageCopyBuilder.BuildUnassignedLine(_todayUnassignedSeconds);
+
+        if (line is null)
+        {
+            TodayUnassignedText.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        TodayUnassignedText.Text = line;
+        TodayUnassignedText.Visibility = Visibility.Visible;
     }
 
     private void PopulateTodayWorkCard(

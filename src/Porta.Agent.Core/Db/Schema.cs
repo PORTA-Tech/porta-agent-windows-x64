@@ -1099,6 +1099,77 @@ internal static class Schema
         EnsureColumnExists(connection, "tasks", "auto_closed_at_utc", "TEXT NOT NULL DEFAULT ''");
     }
 
+    /// <summary>
+    /// Task attribution (2026-09-01) — the two tables that let Ari credit only the work that
+    /// belongs to the task. Its own step, never an edit to a shipped one. Additive, defaulted,
+    /// LOCAL ONLY: neither table leaves the machine and no payload gains a field.
+    ///
+    /// <b>task_app_affinity — what this task's work has actually looked like.</b> Deliberately NOT
+    /// a query over <c>app_usage_rollup</c>: the rollup already contains every hour of historic
+    /// drift, so learning from it would teach the footprint exactly the wrong thing and the gate
+    /// would never fire.
+    ///
+    /// <c>source</c> is 'learned' | 'confirmed' | 'provisional'.
+    ///   - 'learned'     — a member of the footprint, put there by measurement.
+    ///   - 'confirmed'   — a member the USER put there. Never evicted by the 24-hash cap.
+    ///   - 'provisional' — NOT a member. Credited seconds accumulating for a hash the user is
+    ///     currently drifting in. It becomes 'learned' only if the drift streak ends below the
+    ///     hold threshold, i.e. only if the user came back. See TaskCreditDecision for why: the
+    ///     2-minute learning minimum sits below the 10-minute drift threshold, so without this
+    ///     every drifting application would join the footprint at minute 2 and the gate could
+    ///     never reach minute 10.
+    ///
+    /// <b>pending_task_seconds — real work that does not belong to the active task.</b> Held, not
+    /// discarded, and never silently dropped: the entire justification for holding time instead of
+    /// crediting it is that the user can see the held total.
+    ///
+    /// Every held row carries its OWN task_id, bucket_start_utc and local_date, and nothing in the
+    /// hold or release path may use <c>WHERE state = 'active'</c>. Two reasons, both real:
+    ///   - the auto-close now fires on drift, so the task returns to pending WHILE its held rows
+    ///     still exist, and a release resolved against "whatever is active" would land on the
+    ///     wrong task;
+    ///   - <c>AccumulateTaskDayHours</c> resolves the 05:00 goal day from the BUCKET and
+    ///     <c>AccumulateAppUsageRollup</c> resolves the hour from the BUCKET, so a release that
+    ///     replayed at "now" would move yesterday's work onto today.
+    ///
+    /// The primary key <c>(task_id, bucket_start_utc)</c> is the idempotency guarantee: the bucket
+    /// finalizer has a write guard and buckets can be replayed, so a hold must never double-count
+    /// and a release must never double-credit.
+    /// </summary>
+    internal static void ApplyTaskAffinityV35(SqliteConnection connection)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            CREATE TABLE IF NOT EXISTS task_app_affinity (
+                task_id          INTEGER NOT NULL,
+                app_hash         TEXT    NOT NULL,
+                credited_seconds REAL    NOT NULL DEFAULT 0,
+                source           TEXT    NOT NULL DEFAULT 'learned',
+                first_seen_utc   TEXT    NOT NULL,
+                PRIMARY KEY (task_id, app_hash)
+            ) WITHOUT ROWID;
+
+            CREATE INDEX IF NOT EXISTS ix_task_app_affinity_source
+                ON task_app_affinity(task_id, source);
+
+            CREATE TABLE IF NOT EXISTS pending_task_seconds (
+                task_id          INTEGER NOT NULL,
+                bucket_start_utc TEXT    NOT NULL,
+                local_date       TEXT    NOT NULL,
+                seconds          REAL    NOT NULL,
+                app_hash         TEXT    NOT NULL,
+                kind             TEXT    NOT NULL,
+                state            TEXT    NOT NULL DEFAULT 'held',
+                PRIMARY KEY (task_id, bucket_start_utc)
+            ) WITHOUT ROWID;
+
+            CREATE INDEX IF NOT EXISTS ix_pending_task_seconds_state
+                ON pending_task_seconds(state, local_date);
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
     internal static void ApplyContractSchemaV3(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();

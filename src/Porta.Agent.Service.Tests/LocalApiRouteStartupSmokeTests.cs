@@ -338,6 +338,8 @@ public sealed class LocalApiRouteStartupSmokeTests
             => throw new NotSupportedException();
         public IReadOnlyList<AgentCheckInCorrection> GetCheckInCorrectionsToday()
             => Array.Empty<AgentCheckInCorrection>();
+        public double GetUnassignedSecondsToday() => 0d;
+        public int GetDriftHoldCountToday() => 0;
         public string? GetCarriedOverPlan() => null;
     }
 

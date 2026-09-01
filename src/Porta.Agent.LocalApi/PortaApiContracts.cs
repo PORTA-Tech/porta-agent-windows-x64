@@ -1290,7 +1290,13 @@ public sealed record LocalApiTaskActResponse(
 
 public sealed record LocalApiTasksTodayResponse(
     IReadOnlyList<LocalApiTask> Tasks,
-    DateTimeOffset TimestampUtc);
+    DateTimeOffset TimestampUtc,
+    // Task attribution (2026-09-01) — today's measured work that Ari could not place on any task,
+    // in seconds. Deliberately its OWN name: `unattributed_hours` already exists on the report line
+    // and means something completely different (the gap between a task's active_seconds and the
+    // rollup's lifetime seconds, from buckets with no identifiable app). Sharing a label would put
+    // one word on the screen computed two incompatible ways.
+    [property: JsonPropertyName("unassigned_seconds")] double UnassignedSeconds = 0d);
 
 // Workstream D — conversational check-in goals.
 public sealed record LocalApiDailyGoal(

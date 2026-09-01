@@ -320,7 +320,8 @@ public static class LocalApiEndpointMapping
                 : controller.GetTodayTasks();
             return new LocalApiTasksTodayResponse(
                 Tasks: tasks.Select(ToApiTask).ToList()!,
-                TimestampUtc: DateTimeOffset.UtcNow);
+                TimestampUtc: DateTimeOffset.UtcNow,
+                UnassignedSeconds: controller.GetUnassignedSecondsToday());
         });
 
         api.MapPost("/tasks", (IAgentCoreController controller, LocalApiTaskCreateRequest? request) =>

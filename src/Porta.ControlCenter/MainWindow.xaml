@@ -896,6 +896,18 @@
                                 </StackPanel>
                             </Border>
                         </UniformGrid>
+                        <!-- Task attribution (2026-09-01) — real work Ari could not place on a task.
+                             One line, collapsed when there is none. It exists because the only
+                             VISIBLE effect of the attribution change is that a task's hours are
+                             lower than expected, and without this the honest answer and a bug look
+                             identical. Asking about it is a separate piece of work. -->
+                        <TextBlock x:Name="TodayUnassignedText"
+                                   Text=""
+                                   FontSize="13"
+                                   Margin="0,-16,0,26"
+                                   TextWrapping="Wrap"
+                                   Foreground="{DynamicResource PortaTextSecondaryBrush}"
+                                   Visibility="Collapsed" />
                         <!-- Supporting cards hidden — only 3 metric cards shown -->
                         <StackPanel Visibility="Collapsed">
                             <Border x:Name="CurrentSessionCard">

@@ -467,17 +467,63 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                     breakFocusWindow,
                     policyEnvelope,
                     breakDismissStreak);
-                // Workstream 4: land this bucket's seconds on the active task (if any),
-                // split by the pipeline's own attention classification.
-                AttributeBucketToActiveTask(
+                // Task attribution (2026-09-01) — ONE decision, computed ONCE, above all three
+                // writers and passed down to each. The existing comments already say why: these
+                // are the same measurement at three grains and the report reads all three, so the
+                // rule lives in one predicate or the totals drift apart.
+                //
+                // mapped.DominantAppHash is the BUCKET's own dominant app, not
+                // derivedSession.DominantAppHash, which is the continuity ANCHOR. That distinction
+                // is the whole of bug 13: context_excursion is a working kind by design, so a short
+                // hop is credited — and evaluated against the anchor's hash, a five-minute
+                // excursion into anything at all would keep passing the affinity test because the
+                // anchor still matched.
+                TaskAttributionContext attribution = ResolveTaskAttribution(
                     connection,
                     tx,
-                    Time.bucketSeconds,
                     derivedSession.AttentionSegmentKind,
+                    mapped.DominantAppHash,
+                    mapped.StartUtc);
+                // Workstream 4: land this bucket's seconds on the active task (if any),
+                // split by the pipeline's own attention classification.
+                AttributeBucketToTask(
+                    connection,
+                    tx,
+                    attribution.TaskId,
+                    Time.bucketSeconds,
+                    attribution.Credit,
+                    mapped.StartUtc);
+                // ...and, when the work was real but was not THIS task's work, hold the seconds
+                // rather than crediting or discarding them. Before the auto-close, so a bucket is
+                // always held against the task that was actually running when it happened.
+                HoldBucketForTask(
+                    connection,
+                    tx,
+                    attribution.TaskId,
+                    Time.bucketSeconds,
+                    attribution.Credit,
+                    mapped.DominantAppHash,
+                    derivedSession.AttentionSegmentKind,
+                    mapped.StartUtc);
+                // ...and teach the task's footprint what its work looks like, on Credit only.
+                LearnAffinityForBucket(
+                    connection,
+                    tx,
+                    attribution.TaskId,
+                    attribution.Learning,
+                    mapped.DominantAppHash,
+                    Time.bucketSeconds,
                     mapped.StartUtc);
                 // Chat 3 — after the credit, before anything reads the task: a task that has gone
                 // 45 minutes without working time stops being active. Same transaction, so the
                 // hours and the state can never disagree about when the work ended.
+                //
+                // 2026-09-01 — UNCHANGED, and it starts working properly today. Hold no longer
+                // stamps last_credited_at_utc, so a task the user has drifted away from now goes
+                // stale and returns to pending 45 minutes after the last GENUINELY credited bucket.
+                // The net was previously disarmed by the exact behaviour it needed to catch:
+                // heads-down work on something else is every-bucket focus, which credited the wrong
+                // task and refreshed the stale timer in the same statement.
                 AutoCloseStaleActiveTask(connection, tx, mapped.StartUtc);
                 // ...and onto the per-task-per-day table (phase 0.1), which is the grain the
                 // report's main chart needs and the one thing here that takes EVERY attributed
@@ -485,17 +531,20 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                 AccumulateTaskDayHours(
                     connection,
                     tx,
+                    attribution.TaskId,
                     Time.bucketSeconds,
-                    derivedSession.AttentionSegmentKind,
+                    attribution.Credit,
                     mapped.StartUtc);
                 // ...and onto the hourly app rollup, which is the only record of this that
                 // survives the 14-day prune. Same transaction, same inputs, so the two cannot
-                // drift apart.
+                // drift apart. On Hold this writes task_id = 0 — see its summary for what breaks
+                // silently if it does not.
                 AccumulateAppUsageRollup(
                     connection,
                     tx,
+                    attribution.TaskId,
                     Time.bucketSeconds,
-                    derivedSession.AttentionSegmentKind,
+                    attribution.Credit,
                     mapped.DominantAppHash,
                     mapped.StartUtc);
                 TryInsertAutomaticInterventionEvent(connection, tx, inferredSnapshot);
@@ -806,6 +855,18 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                     -- because the one lesson primitive_buckets already cost is that a capture
                     -- table missing from here turns "delete my local data" into a false report.
                     DELETE FROM task_day_hours;
+                    -- Task attribution (2026-09-01). Added to this list in the SAME commit that
+                    -- created the tables, for the reason the primitive_buckets comment above
+                    -- already cost once: a capture table missing from here turns "delete my local
+                    -- data" into a false report.
+                    --
+                    -- task_app_affinity is a per-application record of what the user worked in.
+                    -- pending_task_seconds is measured working time with its application and its
+                    -- timestamps. Both are exactly what somebody pressing this button means to be
+                    -- rid of, and leaving them would also survive the sqlite_sequence reset below
+                    -- and re-attach to a NEW task that happened to be given a recycled id.
+                    DELETE FROM task_app_affinity;
+                    DELETE FROM pending_task_seconds;
                     DELETE FROM events;
                     DELETE FROM interventions;
                     DELETE FROM system_changes;
@@ -848,6 +909,11 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                 using var vacuumCmd = connection.CreateCommand();
                 vacuumCmd.CommandText = "VACUUM;";
                 vacuumCmd.ExecuteNonQuery();
+
+                // The attribution path keeps running state in memory for cost reasons. Ids are
+                // recycled by the sqlite_sequence reset above, so a stale cached footprint or a
+                // stale learning-window latch would attach to whatever task is created next.
+                ResetTaskAttributionRuntimeState();
             }
             catch
             {
@@ -3841,29 +3907,61 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
     /// </summary>
     internal const double StaleActiveTaskSeconds = 45d * 60d;
 
+    /// <summary>
+    /// Back-compatible entry point: resolve the active task, decide with no footprint in play.
+    ///
+    /// It routes through <see cref="TaskCreditDecision.DecideWithoutAffinity"/> rather than
+    /// re-deriving "working" from the kind, so there is still exactly ONE predicate in the codebase.
+    /// The bucket transaction does not use this overload — it computes the decision once and calls
+    /// <see cref="AttributeBucketToTask"/> directly.
+    /// </summary>
     internal static void AttributeBucketToActiveTask(
         SqliteConnection connection,
         SqliteTransaction tx,
         double bucketSeconds,
         string? attentionSegmentKind,
         string? bucketStartUtcRaw = null)
+        => AttributeBucketToTask(
+            connection,
+            tx,
+            ResolveActiveTaskId(connection, tx),
+            bucketSeconds,
+            TaskCreditDecision.DecideWithoutAffinity(attentionSegmentKind),
+            bucketStartUtcRaw);
+
+    /// <summary>
+    /// This bucket's seconds, landed on ONE named task.
+    ///
+    /// The task id is passed in rather than resolved from <c>WHERE state = 'active'</c>. That is not
+    /// tidiness: a release replays held buckets onto a task that stopped being active long ago —
+    /// the auto-close returns a drifted-away-from task to pending while its held rows still exist —
+    /// so a writer that asked "what is active" would land the replay on the wrong task entirely.
+    ///
+    /// Chat 3 (2026-08-24) — only WORKING kinds are credited as work. That guard used to be the
+    /// single away test, so every other kind landed in active_seconds in full: a film with a
+    /// keypress once a minute is passive_consumption, was counted to offtask_seconds AND credited
+    /// as 4.9 hours of work on the active task at the same time.
+    ///
+    /// 2026-09-01 — and a third outcome, <see cref="TaskCredit.Hold"/>: real work that is not THIS
+    /// task's work. It writes NOTHING here — not active_seconds, not offtask_seconds, and
+    /// deliberately not last_credited_at_utc. Leaving that stamp untouched is what finally arms
+    /// <see cref="AutoCloseStaleActiveTask"/> against drift, and it is the single largest accuracy
+    /// win in this change. The seconds are not lost; they go to pending_task_seconds.
+    /// </summary>
+    internal static void AttributeBucketToTask(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        long taskId,
+        double bucketSeconds,
+        TaskCredit credit,
+        string? bucketStartUtcRaw = null)
     {
-        if (bucketSeconds <= 0d || AttentionSegmentKinds.IsAway(attentionSegmentKind))
+        if (taskId <= 0 || bucketSeconds <= 0d || credit is TaskCredit.None or TaskCredit.Hold)
         {
             return;
         }
 
-        // Chat 3 (2026-08-24) — only WORKING kinds are credited as work.
-        //
-        // This guard used to be the single away test above, so every other kind landed in
-        // active_seconds in full: a film with a keypress once a minute is passive_consumption, was
-        // counted to offtask_seconds AND credited as 4.9 hours of work on the active task at the
-        // same time. active_seconds is the number under the client's report, so this was the
-        // product's evidence being wrong, not a cosmetic count.
-        //
-        // Nothing is discarded. Non-working time still flows to offtask_seconds exactly as before;
-        // it simply stops also being called work.
-        bool working = AttentionSegmentKinds.IsWorkingKind(attentionSegmentKind);
+        bool working = TaskCreditDecision.IsCredited(credit);
         using var cmd = connection.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText =
@@ -3877,8 +3975,9 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                 -- so an off-task bucket must not refresh it.
                 last_credited_at_utc = CASE WHEN $working = 1 AND $at <> ''
                                             THEN $at ELSE last_credited_at_utc END
-            WHERE state = 'active';
+            WHERE id = $task;
             """;
+        cmd.Parameters.AddWithValue("$task", taskId);
         cmd.Parameters.AddWithValue("$seconds", working ? bucketSeconds : 0d);
         cmd.Parameters.AddWithValue("$focused", working ? bucketSeconds : 0d);
         cmd.Parameters.AddWithValue("$offtask", working ? 0d : bucketSeconds);
@@ -3959,15 +4058,45 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
     /// close, so a task switched away from and resumed looks continuous, and splitting that across
     /// days later would invent the number.
     /// </summary>
+    /// <summary>Back-compatible entry point. Same single predicate, no footprint in play.</summary>
     internal static void AccumulateTaskDayHours(
         SqliteConnection connection,
         SqliteTransaction tx,
         double bucketSeconds,
         string? attentionSegmentKind,
         string? bucketStartUtcRaw)
+        => AccumulateTaskDayHours(
+            connection,
+            tx,
+            ResolveActiveTaskId(connection, tx),
+            bucketSeconds,
+            TaskCreditDecision.DecideWithoutAffinity(attentionSegmentKind),
+            bucketStartUtcRaw);
+
+    /// <summary>
+    /// The same bucket, on one named task, at the per-task-per-DAY grain.
+    ///
+    /// <paramref name="localDayOverride"/> exists for the release path and for that alone. The day
+    /// is normally resolved from the bucket here, but a held row already carries the goal day that
+    /// was resolved when it was HELD, and replaying it must use that stored day rather than
+    /// recompute one. A hold that spans the 05:00 boundary has to land on the two correct days, and
+    /// a recomputation at release time would be reading a different clock than the one that
+    /// measured the work.
+    ///
+    /// <see cref="TaskCredit.Hold"/> writes nothing here, exactly as it writes nothing to
+    /// <c>tasks</c> — the two are the same measurement at two grains and must never disagree.
+    /// </summary>
+    internal static void AccumulateTaskDayHours(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        long taskId,
+        double bucketSeconds,
+        TaskCredit credit,
+        string? bucketStartUtcRaw,
+        string? localDayOverride = null)
     {
-        // Same gate as AttributeBucketToActiveTask, and deliberately NO app condition.
-        if (bucketSeconds <= 0d || AttentionSegmentKinds.IsAway(attentionSegmentKind))
+        // Same gate as AttributeBucketToTask, and deliberately NO app condition.
+        if (taskId <= 0 || bucketSeconds <= 0d || credit is TaskCredit.None or TaskCredit.Hold)
         {
             return;
         }
@@ -3981,36 +4110,40 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
             return;
         }
 
-        string localDay = AgentCoreController.GoalDay(bucketStart.ToLocalTime());
-        // Chat 3 — same working-kind rule as AttributeBucketToActiveTask. These two are the same
+        string localDay = string.IsNullOrWhiteSpace(localDayOverride)
+            ? AgentCoreController.GoalDay(bucketStart.ToLocalTime())
+            : localDayOverride!;
+        // Chat 3 — same working-kind rule as AttributeBucketToTask. These two are the same
         // measurement at two grains and must never disagree, so the rule lives in one predicate.
-        bool working = AttentionSegmentKinds.IsWorkingKind(attentionSegmentKind);
+        bool working = TaskCreditDecision.IsCredited(credit);
 
         using var cmd = connection.CreateCommand();
         cmd.Transaction = tx;
-        // Only the ACTIVE task, matching the attribution exactly. Time not on a task is not
-        // recorded here: this table answers "which task did this day's hours go to", and time on
-        // no task has no answer to give.
+        // One named task, matching the attribution exactly. Time not on a task is not recorded
+        // here: this table answers "which task did this day's hours go to", and time on no task has
+        // no answer to give.
         cmd.CommandText =
             """
             INSERT INTO task_day_hours (local_date, task_id, active_seconds, focused_seconds, offtask_seconds)
-            SELECT $day, id, $seconds, $focused, $offtask FROM tasks WHERE state = 'active'
+            VALUES ($day, $task, $seconds, $focused, $offtask)
             ON CONFLICT(local_date, task_id) DO UPDATE SET
                 active_seconds  = active_seconds  + excluded.active_seconds,
                 focused_seconds = focused_seconds + excluded.focused_seconds,
                 offtask_seconds = offtask_seconds + excluded.offtask_seconds;
             """;
         cmd.Parameters.AddWithValue("$day", localDay);
+        cmd.Parameters.AddWithValue("$task", taskId);
         cmd.Parameters.AddWithValue("$seconds", working ? bucketSeconds : 0d);
         cmd.Parameters.AddWithValue("$focused", working ? bucketSeconds : 0d);
         cmd.Parameters.AddWithValue("$offtask", working ? 0d : bucketSeconds);
         cmd.ExecuteNonQuery();
 
         // Chat 3 — only real work makes a task "in progress". A film running in front of a planned
-        // task must not promote it, or the status is as wrong as the hours were.
+        // task must not promote it, or the status is as wrong as the hours were. 2026-09-01 — and
+        // neither must an afternoon spent on something else: promotion fires on Credit alone.
         if (working)
         {
-            PromoteActiveTaskToInProgress(connection, tx, bucketStart);
+            PromoteTaskToInProgress(connection, tx, taskId, bucketStart);
         }
     }
 
@@ -4038,20 +4171,24 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
     ///   - Idempotent. After the first bucket the WHERE clause stops matching, so this costs one
     ///     no-op UPDATE per bucket thereafter and can never double-apply.
     /// </summary>
-    private static void PromoteActiveTaskToInProgress(
+    private static void PromoteTaskToInProgress(
         SqliteConnection connection,
         SqliteTransaction tx,
+        long taskId,
         DateTimeOffset bucketStart)
     {
         using var cmd = connection.CreateCommand();
         cmd.Transaction = tx;
+        // By id rather than by state, for the same reason the writers above take one: a release
+        // replays onto a task that is no longer active, and the status has to move with the hours.
         cmd.CommandText =
             """
             UPDATE tasks
             SET status = 'in_progress',
                 started_at_utc = CASE WHEN started_at_utc = '' THEN $at ELSE started_at_utc END
-            WHERE state = 'active' AND status = 'planned';
+            WHERE id = $task AND status = 'planned';
             """;
+        cmd.Parameters.AddWithValue("$task", taskId);
         cmd.Parameters.AddWithValue("$at", bucketStart.ToUniversalTime().ToString("O"));
         cmd.ExecuteNonQuery();
     }
@@ -4076,6 +4213,7 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
     /// difference and not a bug: neither number is inferred, they are simply measured at different
     /// grains. Do not "reconcile" them by inventing a split.
     /// </remarks>
+    /// <summary>Back-compatible entry point. Same single predicate, no footprint in play.</summary>
     internal static void AccumulateAppUsageRollup(
         SqliteConnection connection,
         SqliteTransaction tx,
@@ -4083,9 +4221,40 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
         string? attentionSegmentKind,
         string? dominantAppHash,
         string? bucketStartUtcRaw)
+        => AccumulateAppUsageRollup(
+            connection,
+            tx,
+            ResolveActiveTaskId(connection, tx),
+            bucketSeconds,
+            TaskCreditDecision.DecideWithoutAffinity(attentionSegmentKind),
+            dominantAppHash,
+            bucketStartUtcRaw);
+
+    /// <summary>
+    /// The same bucket, on the hourly app rollup.
+    ///
+    /// <b>THE HOLD CASE IS THE DANGEROUS ONE.</b> Unlike the two writers above, this table records
+    /// time that is on NO task, against <c>task_id = 0</c>, and it always has — most of a normal
+    /// day is exactly that. So a held bucket still gets a row here, but it must carry
+    /// <c>task_id = 0</c> and never the id of the task the user has drifted away from.
+    ///
+    /// Get this wrong and nothing looks broken. <c>ReadReportDraft</c> reads per-task hours as
+    /// <c>SUM(active_seconds) FROM app_usage_rollup WHERE task_id = t.id</c>, so leaving the id in
+    /// place would have the Reports page report the exact hours this whole change exists to remove,
+    /// while the Tasks page — reading <c>tasks.active_seconds</c> — showed the corrected number.
+    /// Two totals for the same work, in the same product, one of them under a client's invoice.
+    /// </summary>
+    internal static void AccumulateAppUsageRollup(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        long taskId,
+        double bucketSeconds,
+        TaskCredit credit,
+        string? dominantAppHash,
+        string? bucketStartUtcRaw)
     {
         string app = (dominantAppHash ?? string.Empty).Trim();
-        if (bucketSeconds <= 0d || app.Length == 0 || AttentionSegmentKinds.IsAway(attentionSegmentKind))
+        if (bucketSeconds <= 0d || app.Length == 0 || credit == TaskCredit.None)
         {
             return;
         }
@@ -4104,19 +4273,21 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
         // Chat 3 — the same working-kind rule as the two accumulators above. This table is what
         // ReadReportDraft builds the client report's hours from, so if it kept the old rule the
         // report would still show the film as work even after the Tasks page stopped doing so.
-        bool working = AttentionSegmentKinds.IsWorkingKind(attentionSegmentKind);
+        //
+        // 2026-09-01 — HOLD IS WORKING TIME, and it is filed exactly as work done with no task
+        // started at all has always been filed: the working columns, against task 0. It is not
+        // off-task. Off-task means "this was not work"; held means "this was work, but not this
+        // task's work", and writing it to offtask_seconds would relabel a genuine afternoon of
+        // coding as a distraction on the one screen that survives the 14-day prune.
+        //
+        // This also makes the reconciliation hold: SUM(active_seconds) WHERE task_id > 0 is
+        // credited task time, and held seconds sit outside it under task 0 rather than inflating it.
+        bool working = credit is TaskCredit.Credit or TaskCredit.Hold;
 
-        long taskId = 0;
-        using (var active = connection.CreateCommand())
-        {
-            active.Transaction = tx;
-            active.CommandText = "SELECT id FROM tasks WHERE state = 'active' LIMIT 1;";
-            object? scalar = active.ExecuteScalar();
-            if (scalar is not null && scalar != DBNull.Value)
-            {
-                taskId = Convert.ToInt64(scalar);
-            }
-        }
+        // The seconds are still recorded, because the app dimension is real and this table is the
+        // only record of it that survives the prune; only the TASK LINK is dropped. See the summary
+        // above for what breaks silently if it is not.
+        long rollupTaskId = credit == TaskCredit.Hold ? 0L : Math.Max(0L, taskId);
 
         using var cmd = connection.CreateCommand();
         cmd.Transaction = tx;
@@ -4134,7 +4305,7 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                 backfilled      = 0;
             """;
         cmd.Parameters.AddWithValue("$hour", HourStartUtc(bucketStartUtc));
-        cmd.Parameters.AddWithValue("$task", taskId);
+        cmd.Parameters.AddWithValue("$task", rollupTaskId);
         cmd.Parameters.AddWithValue("$app", app);
         cmd.Parameters.AddWithValue("$focused", working ? bucketSeconds : 0d);
         cmd.Parameters.AddWithValue("$offtask", working ? 0d : bucketSeconds);

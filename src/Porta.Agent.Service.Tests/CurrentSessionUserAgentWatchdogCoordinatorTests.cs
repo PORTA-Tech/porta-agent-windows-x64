@@ -296,6 +296,8 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
             => throw new NotSupportedException();
         public IReadOnlyList<Porta.Agent.Core.AgentCheckInCorrection> GetCheckInCorrectionsToday()
             => Array.Empty<Porta.Agent.Core.AgentCheckInCorrection>();
+        public double GetUnassignedSecondsToday() => 0d;
+        public int GetDriftHoldCountToday() => 0;
         public string? GetCarriedOverPlan() => null;
     }
 

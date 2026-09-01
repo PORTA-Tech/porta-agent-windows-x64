@@ -178,6 +178,22 @@ public interface IBrainStateStore
         DateTimeOffset nowUtc);
 
     IReadOnlyList<AgentCheckInCorrection> ReadCheckInCorrections(string localDate);
+
+    // Task attribution (2026-09-01) — the day's real work that Ari could not place on a task,
+    // keyed by the same 05:00-boundary goal day. This number is the whole justification for holding
+    // time instead of crediting it: held time that nobody can see is indistinguishable from time
+    // silently lost, which would be a worse bug than the one being fixed.
+    //
+    // NOT unattributed_hours. That already exists and means the gap between a task's active_seconds
+    // and the rollup's lifetime seconds. The two are computed incompatibly and must never share a
+    // label anywhere, including in the LocalApi contracts.
+    double ReadUnassignedSecondsForDay(string localDate);
+
+    // How many separate times the drift gate fired on that day. Seconds say how much was held;
+    // this says how often, and only the pair can tell one long afternoon on the wrong task from a
+    // gate firing every twenty minutes and eating somebody's day.
+    int ReadDriftHoldCountForDay(string localDate);
+
     AgentStorageInfo ReadStorageInfo();
     AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null);
     AgentDistractionSummary ReadCurrentDistractionSummary();

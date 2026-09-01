@@ -189,6 +189,12 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
     public IReadOnlyList<AgentCheckInCorrection> ReadCheckInCorrections(string localDate)
         => _inner.ReadCheckInCorrections(localDate);
 
+    public double ReadUnassignedSecondsForDay(string localDate)
+        => _inner.ReadUnassignedSecondsForDay(localDate);
+
+    public int ReadDriftHoldCountForDay(string localDate)
+        => _inner.ReadDriftHoldCountForDay(localDate);
+
     public AgentStorageInfo ReadStorageInfo() => _inner.ReadStorageInfo();
     public AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null) => _inner.ReadTodaySummary(dateUtc);
     public AgentDistractionSummary ReadCurrentDistractionSummary() => _inner.ReadCurrentDistractionSummary();

@@ -181,7 +181,14 @@ internal static class Migrations
         new(
             Version: 34,
             Name: "task_auto_close_v34",
-            Apply: Schema.ApplyTaskAutoCloseV34)
+            Apply: Schema.ApplyTaskAutoCloseV34),
+        // Task attribution (2026-09-01) — what a task's work LOOKS LIKE (task_app_affinity), and
+        // real work that does not belong to the active task (pending_task_seconds). Its own step,
+        // never an edit to a shipped one. Additive, defaulted, LOCAL ONLY.
+        new(
+            Version: 35,
+            Name: "task_affinity_v35",
+            Apply: Schema.ApplyTaskAffinityV35)
     ];
 
     internal static void Migrate(SqliteConnection connection)

@@ -279,6 +279,8 @@ public sealed class InputSignalsBucketIntegrationTests
             double assumedActiveSeconds, int assumedFinishedCount, int assumedOpenCount, DateTimeOffset nowUtc) => null;
         public IReadOnlyList<AgentCheckInCorrection> ReadCheckInCorrections(string localDate)
             => Array.Empty<AgentCheckInCorrection>();
+        public double ReadUnassignedSecondsForDay(string localDate) => 0d;
+        public int ReadDriftHoldCountForDay(string localDate) => 0;
         public AgentBrainSnapshot? ReadLatestSnapshot() => null;
         public AgentLatestStateDetails? ReadLatestStateDetails() => null;
         public AgentNotificationSuppressionStatus ReadNotificationSuppressionStatus()

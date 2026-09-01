@@ -387,6 +387,17 @@ internal static class ReportsPagePreview
 
     private static IReadOnlyList<PreviewState> BuildStates() =>
     [
+        // Task attribution (2026-09-01) — the one line that stops the change reading as lost work.
+        // Three states, because the risk here is not the wording (that is unit-tested) but how the
+        // line sits between the cards above it and the timeline below.
+        new("today CHAT — 1h 20m unassigned", "Today",
+            w => w.PreviewFillTodayUnassigned(4800d), Height: 900),
+        new("today CHAT — a long unassigned stretch", "Today",
+            w => w.PreviewFillTodayUnassigned(3d * 3600d + 42d * 60d), Height: 900),
+        // The normal day, and the one that matters most: the line must leave NO gap behind it.
+        new("today CHAT — nothing unassigned, line absent", "Today",
+            w => w.PreviewFillTodayUnassigned(0d), Height: 900),
+
         // Phase 3 rebuilt — the two states that matter on this page, and the drawer open on each.
         // "no work" is here because a project nobody has touched is the state the page got wrong
         // three builds running: four zeroes and a row of dashes instead of one useful sentence.

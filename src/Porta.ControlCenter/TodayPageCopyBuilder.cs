@@ -45,6 +45,34 @@ internal static class TodayPageCopyBuilder
             : TodayTrackingState.TrackingLimited;
     }
 
+    /// <summary>
+    /// Task attribution (2026-09-01) — the one line that stops this change reading as lost work.
+    ///
+    /// When Ari measures real work it cannot place on a task, it holds the seconds rather than
+    /// crediting them to whichever task happened to be open. That is the correct behaviour and it
+    /// is the whole point of the change — but from the user's side the only VISIBLE effect is that
+    /// a task's hours are lower than they expected. Without this line the honest answer and a bug
+    /// look identical, and the user has no way to tell which one they are looking at.
+    ///
+    /// Deliberately one line and nothing else. No card, no prompt, no resolution flow: asking
+    /// "was that still this task?" is a separate piece of work and a much bigger one, because an
+    /// ask that cannot act on the answer is worse than no ask at all.
+    ///
+    /// Returns null when there is nothing to say. Zero unassigned time is the normal case and a
+    /// line reading "0m not assigned" would be noise on every good day.
+    /// </summary>
+    public static string? BuildUnassignedLine(double unassignedSeconds)
+    {
+        if (!double.IsFinite(unassignedSeconds) || unassignedSeconds < 60d)
+        {
+            // Under a minute is a rounding artefact, not a finding. The gate needs ten continuous
+            // minutes to hold anything, so a real hold is never this small.
+            return null;
+        }
+
+        return $"{LocalMetricDurationFormatter.FormatMetricDuration(unassignedSeconds)} worked, not assigned to a task";
+    }
+
     public static string BuildStateLabel(TodayTrackingState state, DateTimeOffset? pauseUntilUtc)
     {
         return state switch

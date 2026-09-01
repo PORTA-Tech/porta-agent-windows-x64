@@ -25,6 +25,21 @@ public sealed class MigrationsConsistencyTests
         Assert.Equal(versions.Length, versions.Max());              // max == count => contiguous 1..N
     }
 
+    /// <summary>
+    /// Task attribution (2026-09-01) — V35 exists, is the newest, and did not arrive by editing a
+    /// step that had already shipped.
+    ///
+    /// The V31 comment records what that costs: a column added inside the already-shipped step 30
+    /// was created on every fresh database and on none of the installed ones, so every test passed
+    /// while every project read on a real machine threw. A new release adds a NEW step, always.
+    /// </summary>
+    [Fact]
+    public void TaskAffinity_ArrivedAsItsOwnStep_NotAsAnEditToAShippedOne()
+    {
+        Assert.Contains(35, Migrations.OrderedStepVersions);
+        Assert.Equal(35, Migrations.LatestSchemaVersion);
+    }
+
     [Fact]
     public void LatestSchemaVersion_AlwaysEqualsNewestMigration()
     {

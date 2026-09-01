@@ -179,6 +179,75 @@ public sealed class StaleTaskAutoCloseTests
         });
     }
 
+    /// <summary>
+    /// Task attribution (2026-09-01) — the net, finally armed.
+    ///
+    /// This is the case the 45-minute close could never reach. The user is genuinely heads-down,
+    /// every bucket is focus, and the timer had no reason to stop: crediting the wrong task and
+    /// refreshing last_credited_at_utc happened in the same statement, so the net was disarmed by
+    /// exactly the behaviour it needed to catch.
+    ///
+    /// Held buckets do not stamp last_credited_at_utc, so it is armed. No change to
+    /// AutoCloseStaleActiveTask itself was needed, and none was made.
+    /// </summary>
+    [Fact]
+    public void HeldWork_DoesNotRefreshTheStaleTimer_SoTheTaskFinallyCloses()
+    {
+        RunWithStore((store, dbPath) =>
+        {
+            AgentTask task = store.CreateTask("landing page copy", 7200, DayStart)!;
+            store.ActOnTask(task.Id, "start", DayStart);
+
+            // Ten minutes of genuinely credited work.
+            for (int minute = 0; minute < 10; minute++)
+            {
+                CreditedBucket(dbPath, task.Id, DayStart.AddMinutes(minute));
+            }
+
+            Assert.Equal("active", Read(store).State);
+
+            // Then ninety minutes of real, focused work that belongs to something else.
+            for (int minute = 10; minute < 100; minute++)
+            {
+                HeldBucket(dbPath, task.Id, DayStart.AddMinutes(minute));
+            }
+
+            AgentTask after = Read(store);
+
+            // Still ten minutes. The other ninety are held, not credited and not discarded.
+            Assert.Equal(600d, after.ActiveSeconds, precision: 6);
+            Assert.Equal(0d, after.OfftaskSeconds, precision: 6);
+
+            // And the task stopped itself 45 minutes after the LAST CREDITED bucket — minute 9,
+            // so it closes at minute 54 — rather than 45 minutes after whenever anyone noticed.
+            Assert.Equal("pending", after.State);
+            Assert.Equal(
+                DayStart.AddMinutes(9).ToUniversalTime().ToString("O"),
+                ReadColumn(dbPath, task.Id, "auto_closed_at_utc"));
+        });
+    }
+
+    // One credited bucket and one held bucket, through the same writers in the same order the
+    // bucket transaction uses.
+    private static void CreditedBucket(string dbPath, long taskId, DateTimeOffset atUtc)
+        => OneBucket(dbPath, taskId, atUtc, TaskCredit.Credit);
+
+    private static void HeldBucket(string dbPath, long taskId, DateTimeOffset atUtc)
+        => OneBucket(dbPath, taskId, atUtc, TaskCredit.Hold);
+
+    private static void OneBucket(string dbPath, long taskId, DateTimeOffset atUtc, TaskCredit credit)
+    {
+        using var conn = new SqliteConnection($"Data Source={dbPath}");
+        conn.Open();
+        using SqliteTransaction tx = conn.BeginTransaction();
+        string at = atUtc.ToUniversalTime().ToString("O");
+        SqliteBrainStateStore.AttributeBucketToTask(conn, tx, taskId, BucketSeconds, credit, at);
+        SqliteBrainStateStore.HoldBucketForTask(
+            conn, tx, taskId, BucketSeconds, credit, "elsewhere", AttentionSegmentKinds.Focus, at);
+        SqliteBrainStateStore.AutoCloseStaleActiveTask(conn, tx, at);
+        tx.Commit();
+    }
+
     // ── harness ───────────────────────────────────────────────────────────────────────
 
     // One finalized bucket, through the same two writers the bucket transaction uses and in the

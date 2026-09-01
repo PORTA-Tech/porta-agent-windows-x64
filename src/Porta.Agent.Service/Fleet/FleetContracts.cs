@@ -348,7 +348,22 @@ internal sealed record DailyStatsReportPayload(
     // this the server-cron fallback digest (built from daily_stats) has no way to lead with the
     // goal, which is the digest's headline section.
     [property: JsonPropertyName("goal")] string? Goal = null,
-    [property: JsonPropertyName("middayAnswer")] string? MiddayAnswer = null);
+    [property: JsonPropertyName("middayAnswer")] string? MiddayAnswer = null,
+    // Task attribution (2026-09-01) — how the drift gate is behaving in the field, in two numbers.
+    //
+    // The gate stops crediting a task once the user has spent ten continuous minutes working in
+    // something that does not look like that task's work. That is a real behaviour change to the
+    // number under a client's invoice, shipped to everyone at once, so it needs a signal that
+    // arrives BEFORE a complaint does.
+    //
+    // Seconds alone are not enough. A day with 90 minutes held in one stretch is the feature
+    // working; a day with 90 minutes held across fifteen separate stretches is the gate thrashing
+    // and eating somebody's afternoon in slices. Only the pair tells them apart.
+    //
+    // Counts and seconds only — no application, no hash, no task, no title. Nothing here says what
+    // anybody was doing, which is the same contract the rest of this payload already keeps.
+    [property: JsonPropertyName("unassignedSecondsToday")] double UnassignedSecondsToday = 0d,
+    [property: JsonPropertyName("driftHoldCountToday")] int DriftHoldCountToday = 0);
 
 internal sealed record LabelTargetCountPayload(
     [property: JsonPropertyName("target")] string Target,

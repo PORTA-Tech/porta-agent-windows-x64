@@ -79,6 +79,23 @@ internal static class BucketPrivacyContract
         return trimmed;
     }
 
+    /// <summary>
+    /// A fingerprint of the install secret that is currently producing app hashes.
+    ///
+    /// Task attribution stores this beside the per-task footprints. <c>app_hash</c> is
+    /// <c>HMAC-SHA256(installSecret, identifier)</c>, so a reinstall or a rotated secret changes
+    /// EVERY hash on the machine at once and every stored footprint silently stops matching
+    /// anything. Comparing this token detects that directly instead of inferring it from a
+    /// collapsed match rate — the footprints are cleared and every task falls back to its learning
+    /// window, rather than the user's whole day being held.
+    ///
+    /// It is an HMAC of a fixed constant, so it identifies the SECRET without containing it and
+    /// says nothing whatsoever about what the user ran.
+    /// </summary>
+    internal const string AppHashEpochProbe = "PORTA/app_hash_epoch/v1";
+
+    internal static string AppHashEpochToken() => HashIdentifier(AppHashEpochProbe);
+
     private static string HashIdentifier(string rawIdentifier)
     {
         byte[] secret = InstallSecret.Value;

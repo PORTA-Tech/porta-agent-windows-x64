@@ -1,4 +1,5 @@
 ﻿using Microsoft.Data.Sqlite;
+using Porta.Agent.Common.Analysis;
 using Porta.Agent.Core.Outputs;
 
 namespace Porta.Agent.Core.Tests;
@@ -245,6 +246,79 @@ public sealed class TasksStoreTests
             store.DeleteLocalData();
             Assert.Equal(0, CountRows(dbPath));
         });
+    }
+
+    /// <summary>
+    /// Task attribution (2026-09-01) — Hold writes NOTHING to the task row.
+    ///
+    /// Not active_seconds, not offtask_seconds, and above all not last_credited_at_utc. The last
+    /// of those is what finally arms the 45-minute auto-close against drift: while heads-down work
+    /// on something ELSE was being credited, it refreshed the stale timer in the same statement, so
+    /// the safety net was disarmed by exactly the behaviour it needed to catch.
+    /// </summary>
+    [Fact]
+    public void AHeldBucket_LeavesTheTaskRowCompletelyUntouched()
+    {
+        RunWithStore((store, dbPath) =>
+        {
+            AgentTask task = store.CreateTask("landing page copy", 3600, Now)!;
+            store.ActOnTask(task.Id, "start", Now);
+
+            // One credited bucket, so there is a last-credited stamp to protect.
+            AttributeWithCredit(dbPath, task.Id, 60d, TaskCredit.Credit, Now);
+            string stampAfterCredit = ReadTaskColumn(dbPath, task.Id, "last_credited_at_utc");
+            Assert.NotEqual(string.Empty, stampAfterCredit);
+
+            // Then an hour of held buckets, an hour later. Nothing moves.
+            for (int i = 0; i < 60; i++)
+            {
+                AttributeWithCredit(dbPath, task.Id, 60d, TaskCredit.Hold, Now.AddHours(1).AddMinutes(i));
+            }
+
+            AgentTask after = store.ReadTasks(Now.AddDays(-1), Now.AddDays(1)).Single();
+            Assert.Equal(60d, after.ActiveSeconds, precision: 6);
+            Assert.Equal(0d, after.OfftaskSeconds, precision: 6);
+            Assert.Equal(stampAfterCredit, ReadTaskColumn(dbPath, task.Id, "last_credited_at_utc"));
+        });
+    }
+
+    /// <summary>Off-task still behaves exactly as Chat 3 left it: recorded, never called work.</summary>
+    [Fact]
+    public void AnOffTaskBucket_StillLandsOnOfftaskSeconds()
+    {
+        RunWithStore((store, dbPath) =>
+        {
+            AgentTask task = store.CreateTask("landing page copy", 3600, Now)!;
+            store.ActOnTask(task.Id, "start", Now);
+
+            AttributeWithCredit(dbPath, task.Id, 60d, TaskCredit.OffTask, Now);
+
+            AgentTask after = store.ReadTasks(Now.AddDays(-1), Now.AddDays(1)).Single();
+            Assert.Equal(0d, after.ActiveSeconds, precision: 6);
+            Assert.Equal(60d, after.OfftaskSeconds, precision: 6);
+            Assert.Equal(string.Empty, ReadTaskColumn(dbPath, task.Id, "last_credited_at_utc"));
+        });
+    }
+
+    private static void AttributeWithCredit(
+        string dbPath, long taskId, double seconds, TaskCredit credit, DateTimeOffset at)
+    {
+        using var conn = new SqliteConnection($"Data Source={dbPath}");
+        conn.Open();
+        using SqliteTransaction tx = conn.BeginTransaction();
+        SqliteBrainStateStore.AttributeBucketToTask(
+            conn, tx, taskId, seconds, credit, at.ToUniversalTime().ToString("O"));
+        tx.Commit();
+    }
+
+    private static string ReadTaskColumn(string dbPath, long taskId, string column)
+    {
+        using var conn = new SqliteConnection($"Data Source={dbPath}");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"SELECT {column} FROM tasks WHERE id = $id;";
+        cmd.Parameters.AddWithValue("$id", taskId);
+        return Convert.ToString(cmd.ExecuteScalar()) ?? string.Empty;
     }
 
     private static void Attribute(string dbPath, double seconds, string kind)

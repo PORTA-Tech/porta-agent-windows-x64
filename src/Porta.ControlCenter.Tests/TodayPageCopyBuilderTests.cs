@@ -6,6 +6,47 @@ namespace Porta.ControlCenter.Tests;
 
 public sealed class TodayPageCopyBuilderTests
 {
+    /// <summary>
+    /// Task attribution (2026-09-01) — the line that stops the change reading as lost work.
+    ///
+    /// Yadin's wording, kept exactly: "1h 20m worked, not assigned to a task". The number comes
+    /// from the same formatter the Work Today card uses, so two figures on one screen can never be
+    /// rounded differently.
+    /// </summary>
+    [Fact]
+    public void BuildUnassignedLine_ReadsAsYadinWroteIt()
+    {
+        Assert.Equal(
+            "1h 20m worked, not assigned to a task",
+            TodayPageCopyBuilder.BuildUnassignedLine(4800d));
+    }
+
+    [Fact]
+    public void BuildUnassignedLine_SaysNothingOnAGoodDay()
+    {
+        // Zero unassigned time is the normal case. A line reading "0m not assigned" every day is
+        // noise, and noise is how a line that matters gets ignored on the day it appears.
+        Assert.Null(TodayPageCopyBuilder.BuildUnassignedLine(0d));
+
+        // Under a minute is a rounding artefact, not a finding: the gate needs ten continuous
+        // minutes before it holds anything, so a real hold can never be this small.
+        Assert.Null(TodayPageCopyBuilder.BuildUnassignedLine(45d));
+
+        // And a broken reading is not a claim about the day.
+        Assert.Null(TodayPageCopyBuilder.BuildUnassignedLine(double.NaN));
+        Assert.Null(TodayPageCopyBuilder.BuildUnassignedLine(-600d));
+    }
+
+    [Fact]
+    public void BuildUnassignedLine_NeverSaysUnattributed()
+    {
+        // unattributed_hours already exists and means something else entirely. One word on the
+        // screen computed two incompatible ways is worse than no word at all.
+        string line = TodayPageCopyBuilder.BuildUnassignedLine(3600d)!;
+        Assert.DoesNotContain("unattributed", line, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("not assigned to a task", line, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void ResolveTrackingState_ReturnsTrackingLimited_WhenSnapshotIsStale()
     {

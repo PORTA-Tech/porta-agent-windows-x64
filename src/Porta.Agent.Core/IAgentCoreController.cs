@@ -177,6 +177,14 @@ public interface IAgentCoreController
     // Phase 5 — today's corrections, oldest first. Drives the evening card's one re-arm.
     IReadOnlyList<AgentCheckInCorrection> GetCheckInCorrectionsToday();
 
+    // Task attribution (2026-09-01) — today's real work that could not be placed on a task.
+    // Rendering it is a separate piece of work; the NUMBER has to exist and be correct now,
+    // because the whole justification for holding time is that the user can see it.
+    double GetUnassignedSecondsToday();
+
+    // Fleet telemetry — how often the drift gate fired today, beside how much it held.
+    int GetDriftHoldCountToday();
+
     // Part 3 — yesterday's plan_tomorrow, surfaced only while today has no stated goal, so the
     // morning check-in can open with it instead of a blank ask.
     string? GetCarriedOverPlan();
